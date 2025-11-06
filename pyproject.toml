@@ -1,0 +1,125 @@
+[project]
+name = "dataeval-plots"
+dynamic = ["version"]
+description = "DataEval companion package for plotting utilities"
+authors = [
+  { name = "Andrew Weng", email = "andrew.weng@ariacoustics.com" },
+  { name = "Bill Peria", email = "bill.peria@ariacoustics.com" },
+  { name = "Jon Botts", email = "jonathan.botts@ariacoustics.com" },
+  { name = "Jonathan Christian", email = "jonathan.christian@ariacoustics.com" },
+  { name = "Justin McMillan", email = "justin.mcmillan@ariacoustics.com" },
+  { name = "Ryan Wood", email = "ryan.wood@ariacoustics.com" },
+  { name = "Scott Swan", email = "scott.swan@ariacoustics.com" },
+  { name = "Shaun Jullens", email = "shaun.jullens@ariacoustics.com" },
+]
+requires-python = ">=3.10,<3.14"
+readme = "README.md"
+license = "MIT"
+maintainers = [
+  { name = "ARiA", email = "dataeval@ariacoustics.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Operating System :: OS Independent",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = [
+  "dataeval>=0.93.1",
+  "matplotlib>=3.7.1",
+  "numpy>=1.24.2,<2.3; python_version<'3.12'",
+  "numpy>=1.26.2,<2.3; python_version>='3.12'",
+]
+
+[dependency-groups]
+base = [
+  "nox>=2024",
+  "nox-uv>=1.0",
+  "uv>=0.5",
+]
+lint = [
+  "ruff>=0.8",
+  "codespell>=2.3",
+]
+test = [
+  "pytest>=8.3",
+  "pytest-cov>=6.1",
+  "coverage[toml]>=7.6",
+]
+type = [
+  "pyright>=1.1.389",
+  "nodejs-wheel>=20.17.0",
+]
+dev = [
+  { include-group = "base" },
+  { include-group = "lint" },
+  { include-group = "test" },
+  { include-group = "type" },
+  "dataeval[all]",
+]
+
+[project.urls]
+Homepage = "https://dataeval.ai/"
+Repository = "https://github.com/aria-ml/dataeval/"
+Documentation = "https://dataeval.readthedocs.io/"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/dataeval"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dataeval"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/dataeval" = "dataeval"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = ".." }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/dataeval/plots/_version.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+  "--pythonwarnings=ignore::DeprecationWarning",
+  "--verbose",
+]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["A", "ANN", "C4", "C90", "E", "F", "I", "NPY", "S", "SIM", "RET", "RUF100", "UP"]
+ignore = ["ANN401", "NPY002"]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["dataeval"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.coverage.run]
+source = ["src/dataeval/plots"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+
+[tool.codespell]
+skip = "*env*,output,uv.lock"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"

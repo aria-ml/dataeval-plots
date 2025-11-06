@@ -1,0 +1,21 @@
+*venv*/
+__pycache__/
+dist/
+
+docs/build/
+docs/source/reference/autoapi
+docs/source/tutorials/notebooks/checkpoints/
+
+output/
+.coverage*
+
+.nox/
+.python-version
+
+# Used to store user customizable settings
+.settings
+
+# debug profiles
+.vscode/launch.json
+
+src/dataeval/plots/_version.py
