@@ -1,61 +1,59 @@
 """Nox sessions for testing, linting, and type checking."""
 
 import os
-from pathlib import Path
+import re
+from sys import version_info
 
 import nox
+import nox_uv
+
+PYTHON_VERSION = f"{version_info[0]}.{version_info[1]}"
+PYTHON_VERSIONS = ["3.10", "3.11", "3.12", "3.13"]
+PYTHON_RE_PATTERN = re.compile(r"\d\.\d{1,2}")
+IS_CI = bool(os.environ.get("CI"))
 
 nox.options.default_venv_backend = "uv"
 nox.options.sessions = ["test", "type", "lint"]
 
-PYTHON_VERSIONS = ["3.10", "3.11", "3.12", "3.13"]
+
+def get_python_version(session: nox.Session) -> str:
+    matches = PYTHON_RE_PATTERN.search(session.name)
+    return matches.group(0) if matches else PYTHON_VERSION
 
 
-def _install_group(session: nox.Session, group: str) -> None:
-    """Install a dependency group using uv."""
-    session.run_install("uv", "sync", "--group", group, env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location})
-
-
-@nox.session(python=PYTHON_VERSIONS)
+@nox_uv.session(uv_groups=["test"])
 def test(session: nox.Session) -> None:
-    """Run unit tests with coverage."""
-    _install_group(session, "test")
+    """Run unit tests with coverage reporting. Specify version using `nox -P {version} -e test`."""
+    python_version = get_python_version(session)
+    cov_args = ["--cov", f"--junitxml=output/junit.{python_version}.xml"]
+    cov_term_args = ["--cov-report", "term"]
+    cov_xml_args = ["--cov-report", f"xml:output/coverage.{python_version}.xml"]
+    cov_html_args = ["--cov-report", f"html:output/htmlcov.{python_version}"]
 
-    output_dir = Path("output")
-    output_dir.mkdir(exist_ok=True)
-
+    session.run_install("uv", "sync", "--no-dev", "--all-extras", "--group=test")
     session.run(
         "pytest",
-        "--cov=src/dataeval/plots",
-        "--cov-report=term-missing",
-        "--cov-report=xml:output/coverage.xml",
-        "--cov-report=html:output/htmlcov",
-        f"--junitxml=output/junit-{session.python}.xml",
-        "tests/",
+        *cov_args,
+        *cov_term_args,
+        *cov_xml_args,
+        *cov_html_args,
+        *session.posargs,
     )
+    session.run("mv", ".coverage", f"output/.coverage.{python_version}", external=True)
 
 
-@nox.session(python=PYTHON_VERSIONS)
-def type(session: nox.Session) -> None:
-    """Run type checking with pyright."""
-    _install_group(session, "type")
-    session.run("pyright", "src/dataeval/plots")
+@nox_uv.session(uv_groups=["type"])
+def type(session: nox.Session) -> None:  # noqa: A001
+    """Run type checks and verify external types. Specify version using `nox -P {version} -e type`."""
+    session.run_install("uv", "sync", "--no-dev", "--all-extras", "--group=type")
+    session.run("pyright", "--stats", "src/")
+    session.run("pyright", "--ignoreexternal", "--verifytypes", "dataeval_plots")
 
 
-@nox.session
+@nox_uv.session(uv_groups=["lint"])
 def lint(session: nox.Session) -> None:
-    """Run linting and spell checking."""
-    _install_group(session, "lint")
-
-    ci = os.getenv("CI")
-
-    if ci:
-        # In CI, only check formatting (don't auto-fix)
-        session.run("ruff", "check", "src/", "tests/")
-        session.run("ruff", "format", "--check", "src/", "tests/")
-    else:
-        # Locally, auto-fix issues
-        session.run("ruff", "check", "--fix", "src/", "tests/")
-        session.run("ruff", "format", "src/", "tests/")
-
-    session.run("codespell", "src/", "tests/")
+    """Perform linting and spellcheck."""
+    session.run_install("uv", "sync", "--only-group=lint")
+    session.run("ruff", "check", "--show-fixes", "--exit-non-zero-on-fix", "--fix")
+    session.run("ruff", "format", "--check" if IS_CI else ".")
+    session.run("codespell")

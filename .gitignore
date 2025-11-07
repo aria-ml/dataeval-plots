@@ -18,4 +18,4 @@ output/
 # debug profiles
 .vscode/launch.json
 
-src/dataeval/plots/_version.py
+src/dataeval_plots/_version.py

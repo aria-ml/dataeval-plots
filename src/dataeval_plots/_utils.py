@@ -1,4 +1,4 @@
-"""Plotting utility functions extracted from dataeval.utils._plot."""
+"""Plotting utility functions."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def heatmap(
     cbarlabel: str = "",
 ) -> Figure:
     """
-    Plots a formatted heatmap
+    Plots a formatted heatmap.
 
     Parameters
     ----------
@@ -116,13 +116,13 @@ def heatmap(
 # Function to define how the text is displayed in the heatmap
 def format_text(*args: str) -> str:
     """
-    Helper function to format text for heatmap()
+    Helper function to format text for heatmap().
 
     Parameters
     ----------
     *args : tuple[str, str]
         Text to be formatted. Second element is ignored, but is a
-        mandatory pass-through argument as per matplotlib.ticket.FuncFormatter
+        mandatory pass-through argument as per matplotlib.ticker.FuncFormatter
 
     Returns
     -------
@@ -140,7 +140,7 @@ def histogram_plot(
     ylabel: str = "counts",
 ) -> Figure:
     """
-    Plots a formatted histogram
+    Plots a formatted histogram.
 
     Parameters
     ----------
@@ -194,7 +194,7 @@ def channel_histogram_plot(
     ylabel: str = "counts",
 ) -> Figure:
     """
-    Plots a formatted heatmap
+    Plots a formatted channel-wise histogram.
 
     Parameters
     ----------

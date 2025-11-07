@@ -32,36 +32,48 @@ classifiers = [
 ]
 dependencies = [
   "dataeval>=0.93.1",
-  "matplotlib>=3.7.1",
   "numpy>=1.24.2,<2.3; python_version<'3.12'",
   "numpy>=1.26.2,<2.3; python_version>='3.12'",
 ]
 
+[project.optional-dependencies]
+matplotlib = ["matplotlib>=3.7.1"]
+seaborn = ["matplotlib>=3.7.1", "seaborn>=0.12"]
+plotly = ["plotly>=5.0"]
+altair = ["altair>=5.0"]
+all = [
+  "matplotlib>=3.7.1",
+  "seaborn>=0.12",
+  "plotly>=5.0",
+  "altair>=5.0",
+]
+
 [dependency-groups]
 base = [
-  "nox>=2024",
-  "nox-uv>=1.0",
-  "uv>=0.5",
+  "nox>=2025.5.1",
+  "nox-uv>=0.6.2",
+  "uv>=0.8.0",
 ]
 lint = [
-  "ruff>=0.8",
-  "codespell>=2.3",
+  { include-group = "base" },
+  "ruff>=0.11",
+  "codespell[toml]>=2.3",
 ]
 test = [
+  { include-group = "base" },
   "pytest>=8.3",
   "pytest-cov>=6.1",
   "coverage[toml]>=7.6",
 ]
 type = [
-  "pyright>=1.1.389",
-  "nodejs-wheel>=20.17.0",
+  { include-group = "base" },
+  "pyright[nodejs]>=1.1.400",
 ]
 dev = [
   { include-group = "base" },
   { include-group = "lint" },
   { include-group = "test" },
   { include-group = "type" },
-  "dataeval[all]",
 ]
 
 [project.urls]
@@ -70,20 +82,19 @@ Repository = "https://github.com/aria-ml/dataeval/"
 Documentation = "https://dataeval.readthedocs.io/"
 
 [tool.hatch.build.targets.sdist]
-include = ["src/dataeval"]
+include = ["src/dataeval_plots"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dataeval"]
+packages = ["src/dataeval_plots"]
 
 [tool.hatch.build.targets.wheel.sources]
-"src/dataeval" = "dataeval"
+"src/dataeval_plots" = "dataeval_plots"
 
 [tool.hatch.version]
 source = "vcs"
-raw-options = { root = ".." }
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/dataeval/plots/_version.py"
+version-file = "src/dataeval_plots/_version.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -92,7 +103,28 @@ addopts = [
   "--verbose",
 ]
 
+[tool.coverage.run]
+source = ["src/dataeval_plots"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+  "raise NotImplementedError",
+  ": \\.\\.\\.",
+]
+include = ["*/src/dataeval_plots/*"]
+fail_under = 90
+
+[tool.codespell]
+skip = './*env*,./output,uv.lock'
+
 [tool.ruff]
+exclude = [
+  ".github",
+  ".vscode",
+  "*env*",
+  ".nox",
+]
 line-length = 120
 indent-width = 4
 target-version = "py310"
@@ -102,23 +134,17 @@ select = ["A", "ANN", "C4", "C90", "E", "F", "I", "NPY", "S", "SIM", "RET", "RUF
 ignore = ["ANN401", "NPY002"]
 fixable = ["ALL"]
 unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+per-file-ignores = { "!src/*" = ["ANN", "S", "RET"]}
 
 [tool.ruff.lint.isort]
-known-first-party = ["dataeval"]
+known-first-party = ["dataeval_plots"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-
-[tool.coverage.run]
-source = ["src/dataeval/plots"]
-
-[tool.coverage.report]
-fail_under = 90
-show_missing = true
-
-[tool.codespell]
-skip = "*env*,output,uv.lock"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

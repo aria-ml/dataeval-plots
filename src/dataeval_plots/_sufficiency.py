@@ -1,4 +1,4 @@
-"""Plotting functions for workflow outputs."""
+"""Plotting functions for sufficiency workflow outputs."""
 
 from __future__ import annotations
 
@@ -11,15 +11,12 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from dataeval.outputs._workflows import SufficiencyOutput
-from dataeval.plots import plot
-
-__all__ = []
+__all__ = ["plot_sufficiency"]
 
 
 def f_out(n_i: NDArray[Any], x: NDArray[Any]) -> NDArray[Any]:
     """
-    Calculates the line of best fit based on its free parameters
+    Calculates the line of best fit based on its free parameters.
 
     Parameters
     ----------
@@ -37,7 +34,8 @@ def f_out(n_i: NDArray[Any], x: NDArray[Any]) -> NDArray[Any]:
 
 
 def project_steps(params: NDArray[Any], projection: NDArray[Any]) -> NDArray[Any]:
-    """Projects the measures for each value of X
+    """
+    Projects the measures for each value of X.
 
     Parameters
     ----------
@@ -50,7 +48,6 @@ def project_steps(params: NDArray[Any], projection: NDArray[Any]) -> NDArray[Any
     -------
     NDArray
         Extrapolated measure values at each projection step
-
     """
     return 1 - f_out(projection, params)
 
@@ -84,6 +81,7 @@ def _plot_measure(
             warnings.warn(
                 "Error bars cannot be plotted without full, unaveraged data",
                 UserWarning,
+                stacklevel=2,
             )
         else:
             error = np.std(measures, axis=0)
@@ -121,7 +119,7 @@ def _plot_single_class(
     show_error_bars: bool,
     show_asymptote: bool,
     plots: list[Figure],
-    reference_outputs: Sequence[SufficiencyOutput],
+    reference_outputs: Sequence[Any],
 ) -> None:
     from matplotlib import pyplot as plt
 
@@ -167,7 +165,7 @@ def _plot_multiclass(
     show_error_bars: bool,
     show_asymptote: bool,
     plots: list[Figure],
-    reference_outputs: Sequence[SufficiencyOutput],
+    reference_outputs: Sequence[Any],
     class_names: Sequence[str] | None = None,
 ) -> None:
     from matplotlib import pyplot as plt
@@ -213,14 +211,13 @@ def _plot_multiclass(
         plots.append(fig)
 
 
-@plot.register
-def plot_sufficiency_output(
-    output: SufficiencyOutput,
+def plot_sufficiency(
+    output: Any,  # SufficiencyOutput
     class_names: Sequence[str] | None = None,
     show_error_bars: bool = True,
     show_asymptote: bool = True,
-    reference_outputs: Sequence[SufficiencyOutput] | SufficiencyOutput | None = None,
-) -> Sequence[Figure]:
+    reference_outputs: Sequence[Any] | Any | None = None,
+) -> list[Figure]:
     """
     Plotting function for data sufficiency tasks.
 
@@ -239,7 +236,7 @@ def plot_sufficiency_output(
 
     Returns
     -------
-    Sequence[Figure]
+    list[Figure]
         List of Figures for each measure
 
     Raises
@@ -263,7 +260,7 @@ def plot_sufficiency_output(
     # Wrap reference
     if reference_outputs is None:
         reference_outputs = []
-    if isinstance(reference_outputs, SufficiencyOutput):
+    if not isinstance(reference_outputs, (list, tuple)):
         reference_outputs = [reference_outputs]
 
     # Iterate through measures
