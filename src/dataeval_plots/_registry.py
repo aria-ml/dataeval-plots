@@ -38,9 +38,12 @@ def set_default_backend(name: str) -> None:
     ------
     ValueError
         If backend is not registered
+    ImportError
+        If backend dependencies are not installed
     """
-    if name not in _BACKENDS:
-        raise ValueError(f"Backend '{name}' not registered")
+    # Trigger lazy import if not already registered
+    get_backend(name)
+
     global _DEFAULT_BACKEND
     _DEFAULT_BACKEND = name
 
