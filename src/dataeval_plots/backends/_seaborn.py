@@ -2,68 +2,33 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
+
+from numpy.typing import NDArray
+
+from dataeval_plots.backends._base import BasePlottingBackend
+from dataeval_plots.protocols import (
+    Indexable,
+    PlottableBalance,
+    PlottableBaseStats,
+    PlottableCoverage,
+    PlottableDiversity,
+    PlottableDriftMVDC,
+    PlottableSufficiency,
+)
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-    from dataeval.outputs import Output
 
-
-class SeabornBackend:
+class SeabornBackend(BasePlottingBackend):
     """Seaborn implementation of plotting backend with enhanced styling."""
-
-    def plot(self, output: Output, **kwargs: Any) -> Figure | list[Figure]:
-        """
-        Route to appropriate plot method based on output type.
-
-        Parameters
-        ----------
-        output : Output
-            DataEval output object
-        **kwargs
-            Plotting parameters
-
-        Returns
-        -------
-        Figure or list[Figure]
-            Matplotlib figure object(s) with Seaborn styling
-
-        Raises
-        ------
-        NotImplementedError
-            If plotting not implemented for output type
-        """
-        # Import all output types
-        from dataeval.outputs import (
-            BalanceOutput,
-            BaseStatsOutput,
-            CoverageOutput,
-            DiversityOutput,
-            DriftMVDCOutput,
-            SufficiencyOutput,
-        )
-
-        # Route to appropriate plotting function
-        if isinstance(output, CoverageOutput):
-            return self._plot_coverage(output, **kwargs)
-        elif isinstance(output, BalanceOutput):
-            return self._plot_balance(output, **kwargs)
-        elif isinstance(output, DiversityOutput):
-            return self._plot_diversity(output, **kwargs)
-        elif isinstance(output, SufficiencyOutput):
-            return self._plot_sufficiency(output, **kwargs)
-        elif isinstance(output, BaseStatsOutput):
-            return self._plot_base_stats(output, **kwargs)
-        elif isinstance(output, DriftMVDCOutput):
-            return self._plot_drift_mvdc(output, **kwargs)
-        else:
-            raise NotImplementedError(f"Plotting not implemented for {type(output).__name__}")
 
     def _plot_coverage(
         self,
-        output: Any,  # CoverageOutput
-        images: Any = None,  # Images | Dataset
+        output: PlottableCoverage,
+        images: Indexable | None = None,  # Images | Dataset
         top_k: int = 6,
     ) -> Figure:
         """
@@ -71,7 +36,7 @@ class SeabornBackend:
 
         Parameters
         ----------
-        output : CoverageOutput
+        output : PlottableCoverage
             The coverage output object to plot
         images : Images or Dataset
             Original images (not embeddings) in (N, C, H, W) or (N, H, W) format
@@ -86,18 +51,13 @@ class SeabornBackend:
         import numpy as np
         import seaborn as sns
 
-        from dataeval.data._images import Images
-        from dataeval.protocols import Dataset
-        from dataeval.utils._array import as_numpy, channels_first_to_last
-
         if images is None:
             raise ValueError("images parameter is required for coverage plotting")
 
-        images_obj = Images(images) if isinstance(images, Dataset) else images
-        if np.max(output.uncovered_indices) > len(images_obj):
+        if np.max(output.uncovered_indices) > len(images):
             raise ValueError(
                 f"Uncovered indices {output.uncovered_indices} specify images "
-                f"unavailable in the provided number of images {len(images_obj)}."
+                f"unavailable in the provided number of images {len(images)}."
             )
 
         # Set seaborn style
@@ -114,9 +74,8 @@ class SeabornBackend:
         # Flatten axes using numpy array explicitly for compatibility
         axs_flat = np.asarray(axs).flatten()
 
-        for image, ax in zip(images_obj[:num_images], axs_flat):
-            image = channels_first_to_last(as_numpy(image))
-            ax.imshow(image)
+        for image, ax in zip(images[:num_images], axs_flat):
+            ax.imshow(self.image_to_hwc(image))
             ax.axis("off")
             # Add seaborn-style border
             sns.despine(ax=ax, left=True, bottom=True)
@@ -130,9 +89,9 @@ class SeabornBackend:
 
     def _plot_balance(
         self,
-        output: Any,  # BalanceOutput
-        row_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
-        col_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
+        output: PlottableBalance,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
     ) -> Figure:
         """
@@ -140,7 +99,7 @@ class SeabornBackend:
 
         Parameters
         ----------
-        output : BalanceOutput
+        output : PlottableBalance
             The balance output object to plot
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
@@ -191,7 +150,7 @@ class SeabornBackend:
             title = "Balance Heatmap"
 
         # Create DataFrame for seaborn
-        df = pd.DataFrame(data, index=row_labels, columns=col_labels)
+        df = pd.DataFrame(data, index=row_labels, columns=col_labels)  # type: ignore[arg-type]
 
         # Create figure with seaborn style
         fig, ax = plt.subplots(figsize=(10, 10))
@@ -220,9 +179,9 @@ class SeabornBackend:
 
     def _plot_diversity(
         self,
-        output: Any,  # DiversityOutput
-        row_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
-        col_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
+        output: PlottableDiversity,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
     ) -> Figure:
         """
@@ -230,7 +189,7 @@ class SeabornBackend:
 
         Parameters
         ----------
-        output : DiversityOutput
+        output : PlottableDiversity
             The diversity output object to plot
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
@@ -259,7 +218,7 @@ class SeabornBackend:
             method = asdict(output.meta())["arguments"]["method"].title()
 
             # Create DataFrame for seaborn
-            df = pd.DataFrame(data, index=row_labels, columns=col_labels)
+            df = pd.DataFrame(data, index=row_labels, columns=col_labels)  # type: ignore[arg-type]
 
             fig, ax = plt.subplots(figsize=(10, 10))
 
@@ -302,18 +261,18 @@ class SeabornBackend:
 
     def _plot_sufficiency(
         self,
-        output: Any,  # SufficiencyOutput
-        class_names: Any = None,  # Sequence[str] | None
+        output: PlottableSufficiency,
+        class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
-        reference_outputs: Any = None,  # Sequence[SufficiencyOutput] | SufficiencyOutput | None
+        reference_outputs: Sequence[PlottableSufficiency] | PlottableSufficiency | None = None,
     ) -> list[Figure]:
         """
         Plotting function for data sufficiency tasks with Seaborn styling.
 
         Parameters
         ----------
-        output : SufficiencyOutput
+        output : PlottableSufficiency
             The sufficiency output object to plot
         class_names : Sequence[str] | None, default None
             List of class names
@@ -321,7 +280,7 @@ class SeabornBackend:
             True if error bars should be plotted, False if not
         show_asymptote : bool, default True
             True if asymptote should be plotted, False if not
-        reference_outputs : Sequence[SufficiencyOutput] | SufficiencyOutput, default None
+        reference_outputs : Sequence[PlottableSufficiency] | PlottableSufficiency, default None
             Singular or multiple SufficiencyOutput objects to include in plots
 
         Returns
@@ -335,9 +294,9 @@ class SeabornBackend:
         sns.set_style("whitegrid")
         sns.set_palette("husl")
 
-        from dataeval_plots._sufficiency import plot_sufficiency
+        from dataeval_plots.backends._matplotlib import MatplotlibBackend
 
-        figures = plot_sufficiency(
+        figures = MatplotlibBackend()._plot_sufficiency(
             output,
             class_names=class_names,
             show_error_bars=show_error_bars,
@@ -354,17 +313,17 @@ class SeabornBackend:
 
     def _plot_base_stats(
         self,
-        output: Any,  # BaseStatsOutput
+        output: PlottableBaseStats,
         log: bool = True,
         channel_limit: int | None = None,
-        channel_index: Any = None,  # int | Iterable[int] | None
+        channel_index: int | Iterable[int] | None = None,
     ) -> Figure:
         """
         Plots the statistics as a set of histograms using Seaborn.
 
         Parameters
         ----------
-        output : BaseStatsOutput
+        output : PlottableBaseStats
             The stats output object to plot
         log : bool, default True
             If True, plots the histograms on a logarithmic scale.
@@ -383,7 +342,6 @@ class SeabornBackend:
         import numpy as np
         import pandas as pd
         import seaborn as sns
-
         from matplotlib.figure import Figure
 
         # Set seaborn style
@@ -482,14 +440,14 @@ class SeabornBackend:
 
     def _plot_drift_mvdc(
         self,
-        output: Any,  # DriftMVDCOutput
+        output: PlottableDriftMVDC,
     ) -> Figure:
         """
         Render the roc_auc metric over the train/test data using Seaborn styling.
 
         Parameters
         ----------
-        output : DriftMVDCOutput
+        output : PlottableDriftMVDC
             The drift MVDC output object to plot
 
         Returns

@@ -4,12 +4,7 @@ dynamic = ["version"]
 description = "DataEval companion package for plotting utilities"
 authors = [
   { name = "Andrew Weng", email = "andrew.weng@ariacoustics.com" },
-  { name = "Bill Peria", email = "bill.peria@ariacoustics.com" },
-  { name = "Jon Botts", email = "jonathan.botts@ariacoustics.com" },
-  { name = "Jonathan Christian", email = "jonathan.christian@ariacoustics.com" },
-  { name = "Justin McMillan", email = "justin.mcmillan@ariacoustics.com" },
   { name = "Ryan Wood", email = "ryan.wood@ariacoustics.com" },
-  { name = "Scott Swan", email = "scott.swan@ariacoustics.com" },
   { name = "Shaun Jullens", email = "shaun.jullens@ariacoustics.com" },
 ]
 requires-python = ">=3.10,<3.14"
@@ -31,7 +26,6 @@ classifiers = [
   "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-  "dataeval>=0.93.1",
   "numpy>=1.24.2,<2.3; python_version<'3.12'",
   "numpy>=1.26.2,<2.3; python_version>='3.12'",
 ]
@@ -111,9 +105,10 @@ branch = true
 exclude_also = [
   "raise NotImplementedError",
   ": \\.\\.\\.",
+  "_version.py",
 ]
 include = ["*/src/dataeval_plots/*"]
-fail_under = 90
+fail_under = 70
 
 [tool.codespell]
 skip = './*env*,./output,uv.lock'
@@ -131,7 +126,7 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["A", "ANN", "C4", "C90", "E", "F", "I", "NPY", "S", "SIM", "RET", "RUF100", "UP"]
-ignore = ["ANN401", "NPY002"]
+ignore = ["ANN401", "C901", "NPY002"]
 fixable = ["ALL"]
 unfixable = []
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"

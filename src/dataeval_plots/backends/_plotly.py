@@ -2,68 +2,31 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable, Sequence
+from typing import Any
 
-if TYPE_CHECKING:
-    import plotly.graph_objects as go
+from numpy.typing import NDArray
 
-    from dataeval.outputs import Output
+from dataeval_plots.backends._base import BasePlottingBackend
+from dataeval_plots.backends._shared import calculate_projection, project_steps
+from dataeval_plots.protocols import (
+    Indexable,
+    PlottableBalance,
+    PlottableBaseStats,
+    PlottableCoverage,
+    PlottableDiversity,
+    PlottableDriftMVDC,
+    PlottableSufficiency,
+)
 
 
-class PlotlyBackend:
+class PlotlyBackend(BasePlottingBackend):
     """Plotly implementation of plotting backend with interactive visualizations."""
-
-    def plot(self, output: Output, **kwargs: Any) -> go.Figure | list[go.Figure]:
-        """
-        Route to appropriate plot method based on output type.
-
-        Parameters
-        ----------
-        output : Output
-            DataEval output object
-        **kwargs
-            Plotting parameters
-
-        Returns
-        -------
-        Figure or list[Figure]
-            Plotly figure object(s)
-
-        Raises
-        ------
-        NotImplementedError
-            If plotting not implemented for output type
-        """
-        # Import all output types
-        from dataeval.outputs import (
-            BalanceOutput,
-            BaseStatsOutput,
-            CoverageOutput,
-            DiversityOutput,
-            DriftMVDCOutput,
-            SufficiencyOutput,
-        )
-
-        # Route to appropriate plotting function
-        if isinstance(output, CoverageOutput):
-            return self._plot_coverage(output, **kwargs)
-        elif isinstance(output, BalanceOutput):
-            return self._plot_balance(output, **kwargs)
-        elif isinstance(output, DiversityOutput):
-            return self._plot_diversity(output, **kwargs)
-        elif isinstance(output, SufficiencyOutput):
-            return self._plot_sufficiency(output, **kwargs)
-        elif isinstance(output, BaseStatsOutput):
-            return self._plot_base_stats(output, **kwargs)
-        elif isinstance(output, DriftMVDCOutput):
-            return self._plot_drift_mvdc(output, **kwargs)
-        else:
-            raise NotImplementedError(f"Plotting not implemented for {type(output).__name__}")
 
     def _plot_coverage(
         self,
-        output: Any,  # CoverageOutput
-        images: Any = None,  # Images | Dataset
+        output: PlottableCoverage,
+        images: Indexable | None = None,  # Images | Dataset
         top_k: int = 6,
     ) -> Any:  # go.Figure
         """
@@ -71,7 +34,7 @@ class PlotlyBackend:
 
         Parameters
         ----------
-        output : CoverageOutput
+        output : PlottableCoverage
             The coverage output object to plot
         images : Images or Dataset
             Original images (not embeddings) in (N, C, H, W) or (N, H, W) format
@@ -86,22 +49,16 @@ class PlotlyBackend:
         from io import BytesIO
 
         import numpy as np
-        import plotly.graph_objects as go
         from PIL import Image
         from plotly.subplots import make_subplots
-
-        from dataeval.data._images import Images
-        from dataeval.protocols import Dataset
-        from dataeval.utils._array import as_numpy, channels_first_to_last
 
         if images is None:
             raise ValueError("images parameter is required for coverage plotting")
 
-        images_obj = Images(images) if isinstance(images, Dataset) else images
-        if np.max(output.uncovered_indices) > len(images_obj):
+        if np.max(output.uncovered_indices) > len(images):
             raise ValueError(
                 f"Uncovered indices {output.uncovered_indices} specify images "
-                f"unavailable in the provided number of images {len(images_obj)}."
+                f"unavailable in the provided number of images {len(images)}."
             )
 
         # Determine which images to plot
@@ -118,14 +75,11 @@ class PlotlyBackend:
             subplot_titles=[f"Image {i}" for i in range(num_images)],
         )
 
-        for idx, img in enumerate(images_obj[:num_images]):
-            img_np = channels_first_to_last(as_numpy(img))
+        for idx, img in enumerate(images[:num_images]):
+            img_np = self.image_to_hwc(img)
 
             # Normalize to 0-255 range if needed
-            if img_np.max() <= 1.0:
-                img_np = (img_np * 255).astype(np.uint8)
-            else:
-                img_np = img_np.astype(np.uint8)
+            img_np = (img_np * 255).astype(np.uint8) if img_np.max() <= 1.0 else img_np.astype(np.uint8)
 
             # Convert to PIL Image
             pil_img = Image.fromarray(img_np)
@@ -140,17 +94,17 @@ class PlotlyBackend:
 
             # Add image to subplot
             fig.add_layout_image(
-                dict(
-                    source=f"data:image/png;base64,{img_str}",
-                    xref=f"x{idx + 1}" if idx > 0 else "x",
-                    yref=f"y{idx + 1}" if idx > 0 else "y",
-                    x=0,
-                    y=1,
-                    sizex=1,
-                    sizey=1,
-                    sizing="stretch",
-                    layer="below",
-                ),
+                {
+                    "source": f"data:image/png;base64,{img_str}",
+                    "xref": f"x{idx + 1}" if idx > 0 else "x",
+                    "yref": f"y{idx + 1}" if idx > 0 else "y",
+                    "x": 0,
+                    "y": 1,
+                    "sizex": 1,
+                    "sizey": 1,
+                    "sizing": "stretch",
+                    "layer": "below",
+                },
                 row=row,
                 col=col,
             )
@@ -170,9 +124,9 @@ class PlotlyBackend:
 
     def _plot_balance(
         self,
-        output: Any,  # BalanceOutput
-        row_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
-        col_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
+        output: PlottableBalance,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
     ) -> Any:  # go.Figure
         """
@@ -180,7 +134,7 @@ class PlotlyBackend:
 
         Parameters
         ----------
-        output : BalanceOutput
+        output : PlottableBalance
             The balance output object to plot
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
@@ -242,7 +196,7 @@ class PlotlyBackend:
                 text=text,
                 texttemplate="%{text}",
                 textfont={"size": 10},
-                colorbar=dict(title="Normalized Mutual Information"),
+                colorbar={"title": "Normalized Mutual Information"},
                 hovertemplate="Row: %{y}<br>Col: %{x}<br>Value: %{z:.2f}<extra></extra>",
             )
         )
@@ -253,16 +207,16 @@ class PlotlyBackend:
             yaxis_title=ylabel,
             width=600,
             height=600,
-            xaxis=dict(tickangle=-45),
+            xaxis={"tickangle": -45},
         )
 
         return fig
 
     def _plot_diversity(
         self,
-        output: Any,  # DiversityOutput
-        row_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
-        col_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
+        output: PlottableDiversity,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
     ) -> Any:  # go.Figure
         """
@@ -270,7 +224,7 @@ class PlotlyBackend:
 
         Parameters
         ----------
-        output : DiversityOutput
+        output : PlottableDiversity
             The diversity output object to plot
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
@@ -310,7 +264,7 @@ class PlotlyBackend:
                     text=text,
                     texttemplate="%{text}",
                     textfont={"size": 10},
-                    colorbar=dict(title=f"Normalized {method} Index"),
+                    colorbar={"title": f"Normalized {method} Index"},
                     hovertemplate="Row: %{y}<br>Col: %{x}<br>Value: %{z:.2f}<extra></extra>",
                 )
             )
@@ -321,7 +275,7 @@ class PlotlyBackend:
                 yaxis_title="Class",
                 width=600,
                 height=600,
-                xaxis=dict(tickangle=-45),
+                xaxis={"tickangle": -45},
             )
         else:
             # Bar chart for diversity indices
@@ -331,7 +285,7 @@ class PlotlyBackend:
                 data=go.Bar(
                     x=heat_labels,
                     y=output.diversity_index,
-                    marker=dict(color=output.diversity_index, colorscale="Viridis", showscale=True),
+                    marker={"color": output.diversity_index, "colorscale": "Viridis", "showscale": True},
                     text=[f"{val:.3f}" for val in output.diversity_index],
                     textposition="outside",
                     hovertemplate="Factor: %{x}<br>Diversity: %{y:.3f}<extra></extra>",
@@ -344,25 +298,25 @@ class PlotlyBackend:
                 yaxis_title="Diversity Index",
                 width=700,
                 height=500,
-                xaxis=dict(tickangle=-45),
+                xaxis={"tickangle": -45},
             )
 
         return fig
 
     def _plot_sufficiency(
         self,
-        output: Any,  # SufficiencyOutput
-        class_names: Any = None,  # Sequence[str] | None
+        output: PlottableSufficiency,
+        class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
-        reference_outputs: Any = None,  # Sequence[SufficiencyOutput] | SufficiencyOutput | None
+        reference_outputs: Sequence[PlottableSufficiency] | PlottableSufficiency | None = None,
     ) -> list[Any]:  # list[go.Figure]
         """
         Plotting function for data sufficiency tasks.
 
         Parameters
         ----------
-        output : SufficiencyOutput
+        output : PlottableSufficiency
             The sufficiency output object to plot
         class_names : Sequence[str] | None, default None
             List of class names
@@ -370,7 +324,7 @@ class PlotlyBackend:
             True if error bars should be plotted, False if not
         show_asymptote : bool, default True
             True if asymptote should be plotted, False if not
-        reference_outputs : Sequence[SufficiencyOutput] | SufficiencyOutput, default None
+        reference_outputs : Sequence[PlottableSufficiency] | PlottableSufficiency, default None
             Singular or multiple SufficiencyOutput objects to include in plots
 
         Returns
@@ -382,21 +336,12 @@ class PlotlyBackend:
         import plotly.graph_objects as go
 
         # Extrapolation parameters
-        last_X = output.steps[-1]
-        geomshape = (0.01 * last_X, last_X * 4, len(output.steps))
-        projection = np.geomspace(*geomshape).astype(np.int64)
+        projection = calculate_projection(output.steps)
 
-        # Wrap reference
-        if reference_outputs is None:
-            reference_outputs = []
-        elif not isinstance(reference_outputs, (list, tuple)):
-            reference_outputs = [reference_outputs]
+        # Wrap reference (for potential future use)
+        _ = reference_outputs  # Currently unused but kept for API compatibility
 
         figures = []
-
-        # Helper function to create projection curve
-        def project_steps(params: Any, proj: Any) -> Any:
-            return 1 - (params[0] * proj ** (-params[1]) + params[2])
 
         for name, measures in output.averaged_measures.items():
             if measures.ndim > 1:
@@ -417,7 +362,7 @@ class PlotlyBackend:
                             y=proj_values,
                             mode="lines",
                             name="Potential Model Results",
-                            line=dict(width=2),
+                            line={"width": 2},
                             hovertemplate="Step: %{x}<br>Value: %{y:.4f}<extra></extra>",
                         )
                     )
@@ -426,7 +371,7 @@ class PlotlyBackend:
                     error_y = None
                     if show_error_bars and name in output.measures:
                         error = np.std(output.measures[name][:, :, i], axis=0)
-                        error_y = dict(type="data", array=error, visible=True)
+                        error_y = {"type": "data", "array": error, "visible": True}
 
                     fig.add_trace(
                         go.Scatter(
@@ -434,7 +379,7 @@ class PlotlyBackend:
                             y=values,
                             mode="markers",
                             name="Model Results",
-                            marker=dict(size=10),
+                            marker={"size": 10},
                             error_y=error_y,
                             hovertemplate="Step: %{x}<br>Value: %{y:.4f}<extra></extra>",
                         )
@@ -449,7 +394,7 @@ class PlotlyBackend:
                                 y=[bound, bound],
                                 mode="lines",
                                 name=f"Asymptote: {bound:.4g}",
-                                line=dict(dash="dash", width=2),
+                                line={"dash": "dash", "width": 2},
                                 hovertemplate="Asymptote: %{y:.4f}<extra></extra>",
                             )
                         )
@@ -477,7 +422,7 @@ class PlotlyBackend:
                         y=proj_values,
                         mode="lines",
                         name="Potential Model Results",
-                        line=dict(width=2),
+                        line={"width": 2},
                         hovertemplate="Step: %{x}<br>Value: %{y:.4f}<extra></extra>",
                     )
                 )
@@ -486,7 +431,7 @@ class PlotlyBackend:
                 error_y = None
                 if show_error_bars and name in output.measures:
                     error = np.std(output.measures[name], axis=0)
-                    error_y = dict(type="data", array=error, visible=True)
+                    error_y = {"type": "data", "array": error, "visible": True}
 
                 fig.add_trace(
                     go.Scatter(
@@ -494,7 +439,7 @@ class PlotlyBackend:
                         y=measures,
                         mode="markers",
                         name="Model Results",
-                        marker=dict(size=10),
+                        marker={"size": 10},
                         error_y=error_y,
                         hovertemplate="Step: %{x}<br>Value: %{y:.4f}<extra></extra>",
                     )
@@ -509,7 +454,7 @@ class PlotlyBackend:
                             y=[bound, bound],
                             mode="lines",
                             name=f"Asymptote: {bound:.4g}",
-                            line=dict(dash="dash", width=2),
+                            line={"dash": "dash", "width": 2},
                             hovertemplate="Asymptote: %{y:.4f}<extra></extra>",
                         )
                     )
@@ -530,17 +475,17 @@ class PlotlyBackend:
 
     def _plot_base_stats(
         self,
-        output: Any,  # BaseStatsOutput
+        output: PlottableBaseStats,
         log: bool = True,
         channel_limit: int | None = None,
-        channel_index: Any = None,  # int | Iterable[int] | None
+        channel_index: int | Iterable[int] | None = None,
     ) -> Any:  # go.Figure
         """
         Plots the statistics as a set of histograms.
 
         Parameters
         ----------
-        output : BaseStatsOutput
+        output : PlottableBaseStats
             The stats output object to plot
         log : bool, default True
             If True, plots the histograms on a logarithmic scale.
@@ -593,9 +538,7 @@ class PlotlyBackend:
                 )
 
                 fig.update_xaxes(title_text="Values", row=row, col=col)
-                fig.update_yaxes(
-                    title_text="Counts", type="log" if log else "linear", row=row, col=col
-                )
+                fig.update_yaxes(title_text="Counts", type="log" if log else "linear", row=row, col=col)
 
             fig.update_layout(height=300 * rows, width=300 * cols, title="Base Statistics Histograms")
 
@@ -647,9 +590,7 @@ class PlotlyBackend:
                     )
 
                 fig.update_xaxes(title_text="Values", row=row, col=col)
-                fig.update_yaxes(
-                    title_text="Counts", type="log" if log else "linear", row=row, col=col
-                )
+                fig.update_yaxes(title_text="Counts", type="log" if log else "linear", row=row, col=col)
 
             fig.update_layout(
                 height=300 * rows,
@@ -662,14 +603,14 @@ class PlotlyBackend:
 
     def _plot_drift_mvdc(
         self,
-        output: Any,  # DriftMVDCOutput
+        output: PlottableDriftMVDC,
     ) -> Any:  # go.Figure
         """
         Render the roc_auc metric over the train/test data in relation to the threshold.
 
         Parameters
         ----------
-        output : DriftMVDCOutput
+        output : PlottableDriftMVDC
             The drift MVDC output object to plot
 
         Returns
@@ -707,7 +648,7 @@ class PlotlyBackend:
                 y=resdf["domain_classifier_auroc"]["upper_threshold"],
                 mode="lines",
                 name="Threshold Upper",
-                line=dict(dash="dash", color="red", width=2),
+                line={"dash": "dash", "color": "red", "width": 2},
                 hovertemplate="Index: %{x}<br>Threshold: %{y:.4f}<extra></extra>",
             )
         )
@@ -718,7 +659,7 @@ class PlotlyBackend:
                 y=resdf["domain_classifier_auroc"]["lower_threshold"],
                 mode="lines",
                 name="Threshold Lower",
-                line=dict(dash="dash", color="red", width=2),
+                line={"dash": "dash", "color": "red", "width": 2},
                 hovertemplate="Index: %{x}<br>Threshold: %{y:.4f}<extra></extra>",
             )
         )
@@ -730,7 +671,7 @@ class PlotlyBackend:
                 y=trndf["domain_classifier_auroc"]["value"],
                 mode="lines",
                 name="Train",
-                line=dict(color="blue", width=2),
+                line={"color": "blue", "width": 2},
                 hovertemplate="Index: %{x}<br>ROC AUC: %{y:.4f}<extra></extra>",
             )
         )
@@ -742,7 +683,7 @@ class PlotlyBackend:
                 y=tstdf["domain_classifier_auroc"]["value"],
                 mode="lines",
                 name="Test",
-                line=dict(color="green", width=2),
+                line={"color": "green", "width": 2},
                 hovertemplate="Index: %{x}<br>ROC AUC: %{y:.4f}<extra></extra>",
             )
         )
@@ -755,7 +696,7 @@ class PlotlyBackend:
                     y=resdf["domain_classifier_auroc"]["value"].values[driftx],
                     mode="markers",
                     name="Drift",
-                    marker=dict(symbol="diamond", size=10, color="magenta"),
+                    marker={"symbol": "diamond", "size": 10, "color": "magenta"},
                     hovertemplate="Drift at Index: %{x}<br>ROC AUC: %{y:.4f}<extra></extra>",
                 )
             )
@@ -764,7 +705,7 @@ class PlotlyBackend:
             title="Domain Classifier, Drift Detection",
             xaxis_title="Chunk Index",
             yaxis_title="ROC AUC",
-            yaxis=dict(range=[0, 1.1]),
+            yaxis={"range": [0, 1.1]},
             width=900,
             height=500,
             hovermode="closest",

@@ -2,24 +2,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from dataeval_plots._registry import get_backend, register_backend, set_default_backend
-
-if TYPE_CHECKING:
-    from dataeval.outputs import Output
+from dataeval_plots.protocols import Plottable
 
 __all__ = ["plot", "register_backend", "set_default_backend", "get_backend"]
 
 
-def plot(output: Output, /, backend: str | None = None, **kwargs: Any) -> Any:
+def plot(output: Plottable, /, backend: str | None = None, **kwargs: Any) -> Any:
     """
     Plot any DataEval output object.
 
     Parameters
     ----------
-    output : Output
-        DataEval output object to visualize
+    output : Plottable
+        DataEval output object to visualize (must implement Plottable protocol)
     backend : str or None, default None
         Plotting backend ('matplotlib', 'seaborn', 'plotly', 'altair').
         If None, uses default backend.

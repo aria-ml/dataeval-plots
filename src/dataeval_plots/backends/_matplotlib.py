@@ -2,68 +2,280 @@
 
 from __future__ import annotations
 
+import math
+import warnings
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+from numpy.typing import NDArray
+
+from dataeval_plots.backends._base import BasePlottingBackend
+from dataeval_plots.backends._shared import calculate_projection, normalize_reference_outputs, project_steps
+from dataeval_plots.protocols import (
+    Indexable,
+    PlottableBalance,
+    PlottableBaseStats,
+    PlottableCoverage,
+    PlottableDiversity,
+    PlottableDriftMVDC,
+    PlottableSufficiency,
+)
+
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
-    from dataeval.outputs import Output
 
-
-class MatplotlibBackend:
+class MatplotlibBackend(BasePlottingBackend):
     """Matplotlib implementation of plotting backend."""
 
-    def plot(self, output: Output, **kwargs: Any) -> Figure | list[Figure]:
+    def heatmap(
+        self,
+        data: list[Any] | NDArray[Any],
+        row_labels: list[str] | NDArray[Any],
+        col_labels: list[str] | NDArray[Any],
+        xlabel: str = "",
+        ylabel: str = "",
+        cbarlabel: str = "",
+    ) -> Figure:
         """
-        Route to appropriate plot method based on output type.
+        Plots a formatted heatmap.
 
         Parameters
         ----------
-        output : Output
-            DataEval output object
-        **kwargs
-            Plotting parameters
+        data : NDArray
+            Array containing numerical values for factors to plot
+        row_labels : ArrayLike
+            List/Array containing the labels for rows in the histogram
+        col_labels : ArrayLike
+            List/Array containing the labels for columns in the histogram
+        xlabel : str, default ""
+            X-axis label
+        ylabel : str, default ""
+            Y-axis label
+        cbarlabel : str, default ""
+            Label for the colorbar
 
         Returns
         -------
-        Figure or list[Figure]
-            Matplotlib figure object(s)
-
-        Raises
-        ------
-        NotImplementedError
-            If plotting not implemented for output type
+        matplotlib.figure.Figure
+            Formatted heatmap
         """
-        # Import all output types
-        from dataeval.outputs import (
-            BalanceOutput,
-            BaseStatsOutput,
-            CoverageOutput,
-            DiversityOutput,
-            DriftMVDCOutput,
-            SufficiencyOutput,
-        )
+        import matplotlib.pyplot as plt
+        from matplotlib.ticker import FuncFormatter
 
-        # Route to appropriate plotting function
-        if isinstance(output, CoverageOutput):
-            return self._plot_coverage(output, **kwargs)
-        elif isinstance(output, BalanceOutput):
-            return self._plot_balance(output, **kwargs)
-        elif isinstance(output, DiversityOutput):
-            return self._plot_diversity(output, **kwargs)
-        elif isinstance(output, SufficiencyOutput):
-            return self._plot_sufficiency(output, **kwargs)
-        elif isinstance(output, BaseStatsOutput):
-            return self._plot_base_stats(output, **kwargs)
-        elif isinstance(output, DriftMVDCOutput):
-            return self._plot_drift_mvdc(output, **kwargs)
-        else:
-            raise NotImplementedError(f"Plotting not implemented for {type(output).__name__}")
+        np_data = np.asarray(data)
+        rows: list[str] = [str(n) for n in np.asarray(row_labels)]
+        cols: list[str] = [str(n) for n in np.asarray(col_labels)]
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+
+        # Plot the heatmap
+        im = ax.imshow(np_data, vmin=0, vmax=1.0)
+
+        # Create colorbar
+        cbar = fig.colorbar(im, shrink=0.5)
+        cbar.set_ticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        cbar.set_ticklabels(["0.0", "0.25", "0.5", "0.75", "1.0"])
+        cbar.set_label(cbarlabel, loc="center")
+
+        # Show all ticks and label them with the respective list entries.
+        ax.set_xticks(np.arange(np_data.shape[1]), labels=cols)
+        ax.set_yticks(np.arange(np_data.shape[0]), labels=rows)
+
+        ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
+        # Rotate the tick labels and set their alignment.
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
+        light_gray = "0.9"
+        # Turn spines on and create light gray easily visible grid.
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_color(light_gray)
+
+        xticks = np.arange(np_data.shape[1] + 1) - 0.5
+        yticks = np.arange(np_data.shape[0] + 1) - 0.5
+        ax.set_xticks(xticks, minor=True)
+        ax.set_yticks(yticks, minor=True)
+        ax.grid(which="minor", color=light_gray, linestyle="-", linewidth=3)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        if xlabel:
+            ax.set_xlabel(xlabel)
+        if ylabel:
+            ax.set_ylabel(ylabel)
+
+        valfmt = FuncFormatter(self.format_text)
+
+        # Normalize the threshold to the images color range.
+        threshold = im.norm(1.0) / 2.0
+
+        # Set default alignment to center, but allow it to be
+        # overwritten by textkw.
+        kw = {"horizontalalignment": "center", "verticalalignment": "center"}
+
+        # Loop over the data and create a `Text` for each "pixel".
+        # Change the text's color depending on the data.
+        textcolors = ("white", "black")
+        texts = []
+        for i in range(np_data.shape[0]):
+            for j in range(np_data.shape[1]):
+                kw.update(color=textcolors[int(im.norm(np_data[i, j]) > threshold)])
+                text = im.axes.text(j, i, valfmt(np_data[i, j], None), **kw)  # type: ignore
+                texts.append(text)
+
+        fig.tight_layout()
+        return fig
+
+    # Function to define how the text is displayed in the heatmap
+    def format_text(self, *args: str) -> str:
+        """
+        Helper function to format text for heatmap().
+
+        Parameters
+        ----------
+        *args : tuple[str, str]
+            Text to be formatted. Second element is ignored, but is a
+            mandatory pass-through argument as per matplotlib.ticker.FuncFormatter
+
+        Returns
+        -------
+        str
+            Formatted text
+        """
+        x = args[0]
+        return f"{x:.2f}".replace("0.00", "0").replace("0.", ".").replace("nan", "")
+
+    def histogram_plot(
+        self,
+        data_dict: Mapping[str, Any],
+        log: bool = True,
+        xlabel: str = "values",
+        ylabel: str = "counts",
+    ) -> Figure:
+        """
+        Plots a formatted histogram.
+
+        Parameters
+        ----------
+        data_dict : dict
+            Dictionary containing the metrics and their value arrays
+        log : bool, default True
+            If True, plots the histogram on a semi-log scale (y axis)
+        xlabel : str, default "values"
+            X-axis label
+        ylabel : str, default "counts"
+            Y-axis label
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            Formatted plot of histograms
+        """
+        import matplotlib.pyplot as plt
+
+        num_metrics = len(data_dict)
+        rows = math.ceil(num_metrics / 3)
+        cols = min(num_metrics, 3)
+        fig, axs = plt.subplots(rows, 3, figsize=(cols * 3 + 1, rows * 3))
+        axs_flat = np.asarray(axs).flatten()
+        for ax, metric in zip(
+            axs_flat,
+            data_dict,
+        ):
+            # Plot the histogram for the chosen metric
+            ax.hist(data_dict[metric].astype(np.float64), bins=20, log=log)
+
+            # Add labels to the histogram
+            ax.set_title(metric)
+            ax.set_ylabel(ylabel)
+            ax.set_xlabel(xlabel)
+
+        for ax in axs_flat[num_metrics:]:
+            ax.axis("off")
+            ax.set_visible(False)
+
+        fig.tight_layout()
+        return fig
+
+    def channel_histogram_plot(
+        self,
+        data_dict: Mapping[str, Any],
+        log: bool = True,
+        max_channels: int = 3,
+        ch_mask: Sequence[bool] | None = None,
+        xlabel: str = "values",
+        ylabel: str = "counts",
+    ) -> Figure:
+        """
+        Plots a formatted channel-wise histogram.
+
+        Parameters
+        ----------
+        data_dict : dict
+            Dictionary containing the metrics and their value arrays
+        log : bool, default True
+            If True, plots the histogram on a semi-log scale (y axis)
+        max_channels : int, default 3
+            Maximum number of channels to plot
+        ch_mask : Sequence[bool] | None, default None
+            Boolean mask for selecting channels
+        xlabel : str, default "values"
+            X-axis label
+        ylabel : str, default "counts"
+            Y-axis label
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            Formatted plot of histograms
+        """
+        import matplotlib.pyplot as plt
+
+        channelwise_metrics = ["mean", "std", "var", "skew", "zeros", "brightness", "contrast", "darkness", "entropy"]
+        data_keys = [key for key in data_dict if key in channelwise_metrics]
+        label_kwargs = {"label": [f"Channel {i}" for i in range(max_channels)]}
+
+        num_metrics = len(data_keys)
+        rows = math.ceil(num_metrics / 3)
+        cols = min(num_metrics, 3)
+        fig, axs = plt.subplots(rows, 3, figsize=(cols * 3 + 1, rows * 3))
+        axs_flat = np.asarray(axs).flatten()
+        for ax, metric in zip(
+            axs_flat,
+            data_keys,
+        ):
+            # Plot the histogram for the chosen metric
+            data = data_dict[metric][ch_mask].reshape(-1, max_channels)
+            ax.hist(
+                data.astype(np.float64),
+                bins=20,
+                density=True,
+                log=log,
+                **label_kwargs,
+            )
+            # Only plot the labels once for channels
+            if label_kwargs:
+                ax.legend()
+                label_kwargs = {}
+
+            # Add labels to the histogram
+            ax.set_title(metric)
+            ax.set_ylabel(ylabel)
+            ax.set_xlabel(xlabel)
+
+        for ax in axs_flat[num_metrics:]:
+            ax.axis("off")
+            ax.set_visible(False)
+
+        fig.tight_layout()
+        return fig
 
     def _plot_coverage(
         self,
-        output: Any,  # CoverageOutput
-        images: Any = None,  # Images | Dataset
+        output: PlottableCoverage,
+        images: Indexable | None = None,  # Images | Dataset
         top_k: int = 6,
     ) -> Figure:
         """
@@ -71,7 +283,7 @@ class MatplotlibBackend:
 
         Parameters
         ----------
-        output : CoverageOutput
+        output : PlottableCoverage
             The coverage output object to plot
         images : Images or Dataset
             Original images (not embeddings) in (N, C, H, W) or (N, H, W) format
@@ -85,18 +297,13 @@ class MatplotlibBackend:
         import matplotlib.pyplot as plt
         import numpy as np
 
-        from dataeval.data._images import Images
-        from dataeval.protocols import Dataset
-        from dataeval.utils._array import as_numpy, channels_first_to_last
-
         if images is None:
             raise ValueError("images parameter is required for coverage plotting")
 
-        images_obj = Images(images) if isinstance(images, Dataset) else images
-        if np.max(output.uncovered_indices) > len(images_obj):
+        if np.max(output.uncovered_indices) > len(images):
             raise ValueError(
                 f"Uncovered indices {output.uncovered_indices} specify images "
-                f"unavailable in the provided number of images {len(images_obj)}."
+                f"unavailable in the provided number of images {len(images)}."
             )
 
         # Determine which images to plot
@@ -112,9 +319,8 @@ class MatplotlibBackend:
         # Flatten axes using numpy array explicitly for compatibility
         axs_flat = np.asarray(axs).flatten()
 
-        for image, ax in zip(images_obj[:num_images], axs_flat):
-            image = channels_first_to_last(as_numpy(image))
-            ax.imshow(image)
+        for image, ax in zip(images[:num_images], axs_flat):
+            ax.imshow(self.image_to_hwc(image))
             ax.axis("off")
 
         for ax in axs_flat[num_images:]:
@@ -125,9 +331,9 @@ class MatplotlibBackend:
 
     def _plot_balance(
         self,
-        output: Any,  # BalanceOutput
-        row_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
-        col_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
+        output: PlottableBalance,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
     ) -> Figure:
         """
@@ -135,7 +341,7 @@ class MatplotlibBackend:
 
         Parameters
         ----------
-        output : BalanceOutput
+        output : PlottableBalance
             The balance output object to plot
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
@@ -150,18 +356,16 @@ class MatplotlibBackend:
         """
         import numpy as np
 
-        from dataeval_plots._utils import heatmap
-
         if plot_classwise:
             if row_labels is None:
                 row_labels = output.class_names
             if col_labels is None:
                 col_labels = output.factor_names
 
-            fig = heatmap(
+            fig = self.heatmap(
                 output.classwise,
-                row_labels,
-                col_labels,
+                np.asarray(row_labels),
+                np.asarray(col_labels),
                 xlabel="Factors",
                 ylabel="Class",
                 cbarlabel="Normalized Mutual Information",
@@ -187,15 +391,20 @@ class MatplotlibBackend:
             if col_labels is None:
                 col_labels = heat_labels[1:]
 
-            fig = heatmap(heat_data, row_labels, col_labels, cbarlabel="Normalized Mutual Information")
+            fig = self.heatmap(
+                heat_data,
+                np.asarray(row_labels),
+                np.asarray(col_labels),
+                cbarlabel="Normalized Mutual Information",
+            )
 
         return fig
 
     def _plot_diversity(
         self,
-        output: Any,  # DiversityOutput
-        row_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
-        col_labels: Any = None,  # Sequence[Any] | NDArray[Any] | None
+        output: PlottableDiversity,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
     ) -> Figure:
         """
@@ -203,7 +412,7 @@ class MatplotlibBackend:
 
         Parameters
         ----------
-        output : DiversityOutput
+        output : PlottableDiversity
             The diversity output object to plot
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
@@ -220,18 +429,16 @@ class MatplotlibBackend:
 
         import matplotlib.pyplot as plt
 
-        from dataeval_plots._utils import heatmap
-
         if plot_classwise:
             if row_labels is None:
                 row_labels = output.class_names
             if col_labels is None:
                 col_labels = output.factor_names
 
-            fig = heatmap(
+            fig = self.heatmap(
                 output.classwise,
-                row_labels,
-                col_labels,
+                np.asarray(row_labels),
+                np.asarray(col_labels),
                 xlabel="Factors",
                 ylabel="Class",
                 cbarlabel=f"Normalized {asdict(output.meta())['arguments']['method'].title()} Index",
@@ -248,20 +455,179 @@ class MatplotlibBackend:
 
         return fig
 
+    def _plot_measure(
+        self,
+        name: str,
+        steps: NDArray[Any],
+        averaged_measure: NDArray[Any],
+        measures: NDArray[Any] | None,
+        params: NDArray[Any],
+        projection: NDArray[Any],
+        show_error_bars: bool,
+        show_asymptote: bool,
+        ax: Axes,
+    ) -> None:
+        ax.set_title(f"{name} Sufficiency")
+        ax.set_xlabel("Steps")
+        projection_curve = ax.plot(
+            projection,
+            project_steps(params, projection),
+            linestyle="solid",
+            label=f"Potential Model Results ({name})",
+            linewidth=2,
+            zorder=2,
+        )
+        projection_color = projection_curve[0].get_color()
+        # Calculate error bars
+        # Plot measure over each step with associated error
+        if show_error_bars:
+            if measures is None:
+                warnings.warn(
+                    "Error bars cannot be plotted without full, unaveraged data",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
+                error = np.std(measures, axis=0)
+                ax.errorbar(
+                    steps,
+                    averaged_measure,
+                    ecolor=projection_color,
+                    color=projection_color,
+                    yerr=error,
+                    capsize=7,
+                    capthick=1.5,
+                    elinewidth=1.5,
+                    fmt="o",
+                    label=f"Model Results ({name})",
+                    markersize=5,
+                    zorder=3,
+                )
+        else:
+            ax.scatter(steps, averaged_measure, color=projection_color, label=f"Model Results ({name})", zorder=3)
+        # Plot asymptote
+        if show_asymptote:
+            bound = 1 - params[2]
+            ax.axhline(
+                y=bound, linestyle="dashed", color=projection_color, label=f"Asymptote: {bound:.4g} ({name})", zorder=1
+            )
+
+    def _plot_single_class(
+        self,
+        name: str,
+        steps: NDArray[Any],
+        averaged_measure: NDArray[Any],
+        measures: NDArray[Any] | None,
+        params: NDArray[Any],
+        projection: NDArray[Any],
+        show_error_bars: bool,
+        show_asymptote: bool,
+        plots: list[Figure],
+        reference_outputs: Sequence[Any],
+    ) -> None:
+        from matplotlib import pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.set_ylabel(f"{name}")
+        self._plot_measure(
+            name,
+            steps,
+            averaged_measure,
+            measures,
+            params,
+            projection,
+            show_error_bars,
+            show_asymptote,
+            ax,
+        )
+        # Plot metric for each provided reference output
+        for index, output in enumerate(reference_outputs):
+            if name in output.averaged_measures:
+                self._plot_measure(
+                    f"{name} Output {index + 2}",
+                    output.steps,
+                    output.averaged_measures[name],
+                    output.measures.get(name),
+                    output.params[name],
+                    projection,
+                    show_error_bars,
+                    show_asymptote,
+                    ax,
+                )
+        ax.set_xscale("log")
+        ax.legend(loc="best")
+        plots.append(fig)
+
+    def _plot_multiclass(
+        self,
+        name: str,
+        steps: NDArray[Any],
+        averaged_measure: NDArray[Any],
+        measures: NDArray[Any] | None,
+        params: NDArray[Any],
+        projection: NDArray[Any],
+        show_error_bars: bool,
+        show_asymptote: bool,
+        plots: list[Figure],
+        reference_outputs: Sequence[Any],
+        class_names: Sequence[str] | None = None,
+    ) -> None:
+        from matplotlib import pyplot as plt
+
+        if class_names is not None and len(averaged_measure) != len(class_names):
+            raise IndexError("Class name count does not align with measures")
+        for i, values in enumerate(averaged_measure):
+            # Create a plot for each class
+            fig, ax = plt.subplots()
+            class_name = str(i) if class_names is None else class_names[i]
+            ax.set_ylabel(f"{name}")
+            self._plot_measure(
+                f"{name}_{class_name}",
+                steps,
+                values,
+                None if measures is None else measures[:, :, i],
+                params[i],
+                projection,
+                show_error_bars,
+                show_asymptote,
+                ax,
+            )
+            # Iterate through each reference output to plot similar class
+            for index, output in enumerate(reference_outputs):
+                if (
+                    name in output.averaged_measures
+                    and output.averaged_measures[name].ndim > 1
+                    and i <= len(output.averaged_measures[name])
+                ):
+                    self._plot_measure(
+                        f"{name}_{class_name} Output {index + 2}",
+                        output.steps,
+                        output.averaged_measures[name][i],
+                        output.measures[name][:, :, i] if len(output.measures) else None,
+                        output.params[name][i],
+                        projection,
+                        show_error_bars,
+                        show_asymptote,
+                        ax,
+                    )
+            ax.set_xscale("log")
+            ax.legend(loc="best")
+            plots.append(fig)
+
     def _plot_sufficiency(
         self,
-        output: Any,  # SufficiencyOutput
-        class_names: Any = None,  # Sequence[str] | None
+        output: PlottableSufficiency,
+        class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
-        reference_outputs: Any = None,  # Sequence[SufficiencyOutput] | SufficiencyOutput | None
+        reference_outputs: Sequence[PlottableSufficiency] | PlottableSufficiency | None = None,
     ) -> list[Figure]:
         """
         Plotting function for data sufficiency tasks.
 
         Parameters
         ----------
-        output : SufficiencyOutput
+        output : PlottableSufficiency
             The sufficiency output object to plot
         class_names : Sequence[str] | None, default None
             List of class names
@@ -277,29 +643,59 @@ class MatplotlibBackend:
         list[Figure]
             List of Figures for each measure
         """
-        from dataeval_plots._sufficiency import plot_sufficiency
+        # Extrapolation parameters
+        extrapolated = calculate_projection(output.steps)
 
-        return plot_sufficiency(
-            output,
-            class_names=class_names,
-            show_error_bars=show_error_bars,
-            show_asymptote=show_asymptote,
-            reference_outputs=reference_outputs,
-        )
+        # Stores all plots
+        plots = []
+
+        # Wrap reference
+        reference_outputs = normalize_reference_outputs(reference_outputs)
+
+        # Iterate through measures
+        for name, measures in output.averaged_measures.items():
+            if measures.ndim > 1:
+                self._plot_multiclass(
+                    name,
+                    output.steps,
+                    measures,
+                    output.measures.get(name),
+                    output.params[name],
+                    extrapolated,
+                    show_error_bars,
+                    show_asymptote,
+                    plots,
+                    reference_outputs,
+                    class_names,
+                )
+            else:
+                self._plot_single_class(
+                    name,
+                    output.steps,
+                    measures,
+                    output.measures.get(name),
+                    output.params[name],
+                    extrapolated,
+                    show_error_bars,
+                    show_asymptote,
+                    plots,
+                    reference_outputs,
+                )
+        return plots
 
     def _plot_base_stats(
         self,
-        output: Any,  # BaseStatsOutput
+        output: PlottableBaseStats,
         log: bool = True,
         channel_limit: int | None = None,
-        channel_index: Any = None,  # int | Iterable[int] | None
+        channel_index: int | Iterable[int] | None = None,
     ) -> Figure:
         """
         Plots the statistics as a set of histograms.
 
         Parameters
         ----------
-        output : BaseStatsOutput
+        output : PlottableBaseStats
             The stats output object to plot
         log : bool, default True
             If True, plots the histograms on a logarithmic scale.
@@ -314,26 +710,24 @@ class MatplotlibBackend:
         """
         from matplotlib.figure import Figure
 
-        from dataeval_plots._utils import channel_histogram_plot, histogram_plot
-
         max_channels, ch_mask = output._get_channels(channel_limit, channel_index)
         factors = output.factors(exclude_constant=True)
         if not factors:
             return Figure()
         if max_channels == 1:
-            return histogram_plot(factors, log)
-        return channel_histogram_plot(factors, log, max_channels, ch_mask)
+            return self.histogram_plot(factors, log)
+        return self.channel_histogram_plot(factors, log, max_channels, ch_mask)
 
     def _plot_drift_mvdc(
         self,
-        output: Any,  # DriftMVDCOutput
+        output: PlottableDriftMVDC,
     ) -> Figure:
         """
         Render the roc_auc metric over the train/test data in relation to the threshold.
 
         Parameters
         ----------
-        output : DriftMVDCOutput
+        output : PlottableDriftMVDC
             The drift MVDC output object to plot
 
         Returns
