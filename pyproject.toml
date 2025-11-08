@@ -28,15 +28,14 @@ classifiers = [
 dependencies = [
   "numpy>=1.24.2,<2.3; python_version<'3.12'",
   "numpy>=1.26.2,<2.3; python_version>='3.12'",
+  "matplotlib>=3.7.1",
 ]
 
 [project.optional-dependencies]
-matplotlib = ["matplotlib>=3.7.1"]
-seaborn = ["matplotlib>=3.7.1", "seaborn>=0.12"]
+seaborn = ["seaborn>=0.12"]
 plotly = ["plotly>=5.0"]
 altair = ["altair>=5.0"]
 all = [
-  "matplotlib>=3.7.1",
   "seaborn>=0.12",
   "plotly>=5.0",
   "altair>=5.0",
@@ -100,6 +99,7 @@ addopts = [
 [tool.coverage.run]
 source = ["src/dataeval_plots"]
 branch = true
+omit = ["src/dataeval_plots/_version.py"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -108,7 +108,7 @@ exclude_also = [
   "_version.py",
 ]
 include = ["*/src/dataeval_plots/*"]
-fail_under = 70
+fail_under = 80
 
 [tool.codespell]
 skip = './*env*,./output,uv.lock'

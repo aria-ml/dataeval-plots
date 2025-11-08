@@ -42,6 +42,29 @@ def test(session: nox.Session) -> None:
     session.run("mv", ".coverage", f"output/.coverage.{python_version}", external=True)
 
 
+@nox_uv.session(uv_groups=["test"])
+def base(session: nox.Session) -> None:
+    """Run tests for base installation (matplotlib only, no optional backends)."""
+    python_version = get_python_version(session)
+    cov_args = ["--cov", "--cov-fail-under=0", f"--junitxml=output/junit.base.{python_version}.xml"]
+    cov_term_args = ["--cov-report", "term"]
+    cov_xml_args = ["--cov-report", f"xml:output/coverage.base.{python_version}.xml"]
+    cov_html_args = ["--cov-report", f"html:output/htmlcov.base.{python_version}"]
+
+    # Install only base dependencies (no extras)
+    session.run_install("uv", "sync", "--no-dev", "--group=test")
+    session.run(
+        "pytest",
+        "tests/test_base_installation.py",
+        *cov_args,
+        *cov_term_args,
+        *cov_xml_args,
+        *cov_html_args,
+        *session.posargs,
+    )
+    session.run("mv", ".coverage", f"output/.coverage.base.{python_version}", external=True)
+
+
 @nox_uv.session(uv_groups=["type"])
 def type(session: nox.Session) -> None:  # noqa: A001
     """Run type checks and verify external types. Specify version using `nox -P {version} -e type`."""

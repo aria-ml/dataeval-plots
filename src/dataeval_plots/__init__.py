@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from dataeval_plots._registry import get_backend, register_backend, set_default_backend
+from dataeval_plots._registry import get_available_backends, get_backend, register_backend, set_default_backend
 from dataeval_plots.protocols import Plottable
 
-__all__ = ["plot", "register_backend", "set_default_backend", "get_backend"]
+__all__ = ["plot", "register_backend", "set_default_backend", "get_backend", "get_available_backends"]
 
 
 def plot(output: Plottable, /, backend: str | None = None, **kwargs: Any) -> Any:
