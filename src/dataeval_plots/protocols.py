@@ -18,15 +18,13 @@ The protocol hierarchy:
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from numpy.typing import NDArray
 
 
-@dataclass(frozen=True)
-class ExecutionMetadata:
+class ExecutionMetadata(Protocol):
     """Metadata about the execution of a DataEval function.
 
     This is a minimal stub for type checking. The actual ExecutionMetadata
@@ -48,12 +46,18 @@ class ExecutionMetadata:
         Version of DataEval
     """
 
-    name: str
-    execution_time: datetime
-    execution_duration: float
-    arguments: dict[str, Any]
-    state: dict[str, Any]
-    version: str
+    @property
+    def name(self) -> str: ...
+    @property
+    def execution_time(self) -> datetime: ...
+    @property
+    def execution_duration(self) -> float: ...
+    @property
+    def arguments(self) -> Mapping[str, Any]: ...
+    @property
+    def state(self) -> Mapping[str, Any]: ...
+    @property
+    def version(self) -> str: ...
 
 
 @runtime_checkable
