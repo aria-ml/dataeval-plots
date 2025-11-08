@@ -248,7 +248,7 @@ class SeabornBackend(BasePlottingBackend):
             fig, ax = plt.subplots(figsize=(10, 8))
 
             # Use seaborn barplot
-            sns.barplot(data=df, x="factor", y="diversity", palette="viridis", ax=ax)
+            sns.barplot(data=df, x="factor", y="diversity", hue="factor", palette="viridis", legend=False, ax=ax)
 
             ax.set_xlabel("Factors", fontsize=12)
             ax.set_ylabel("Diversity Index", fontsize=12)

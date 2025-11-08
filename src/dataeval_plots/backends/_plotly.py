@@ -183,11 +183,31 @@ class PlotlyBackend(BasePlottingBackend):
             title = "Balance Heatmap"
 
         # Create heatmap with annotations
+        # For triangular heatmaps (non-classwise), we mask NaN values to show only upper triangle
         text = [[f"{val:.2f}" if not np.isnan(val) else "" for val in row] for row in data]
+
+        # Create custom hover text that handles NaN values properly
+        hovertext = []
+        customdata = []
+        for i, row in enumerate(data):
+            hovertext_row = []
+            customdata_row = []
+            for j, val in enumerate(row):
+                if not np.isnan(val):
+                    hovertext_row.append(f"Row: {row_labels[i]}<br>Col: {col_labels[j]}<br>Value: {val:.2f}")
+                    customdata_row.append(val)
+                else:
+                    hovertext_row.append("")
+                    customdata_row.append(np.nan)
+            hovertext.append(hovertext_row)
+            customdata.append(customdata_row)
+
+        # Replace NaN with None for better Plotly handling (shows as gaps)
+        z_data = [[None if np.isnan(val) else val for val in row] for row in data]
 
         fig = go.Figure(
             data=go.Heatmap(
-                z=data,
+                z=z_data,
                 x=[str(label) for label in col_labels],
                 y=[str(label) for label in row_labels],
                 colorscale="Viridis",
@@ -196,8 +216,9 @@ class PlotlyBackend(BasePlottingBackend):
                 text=text,
                 texttemplate="%{text}",
                 textfont={"size": 10},
-                colorbar={"title": "Normalized Mutual Information"},
-                hovertemplate="Row: %{y}<br>Col: %{x}<br>Value: %{z:.2f}<extra></extra>",
+                colorbar={"title": {"text": "Normalized Mutual Information", "side": "right"}},
+                hovertext=hovertext,
+                hoverinfo="text",
             )
         )
 
@@ -208,6 +229,7 @@ class PlotlyBackend(BasePlottingBackend):
             width=600,
             height=600,
             xaxis={"tickangle": -45},
+            yaxis={"autorange": "reversed"},  # Reverse y-axis to show first row at top
         )
 
         return fig

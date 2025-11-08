@@ -164,26 +164,33 @@ class AltairBackend(BasePlottingBackend):
         heatmap_data = []
         for i in range(rows):
             for j in range(cols):
+                # For non-classwise (triangular) plots, only include upper triangle cells
+                # For classwise plots, include all non-NaN values
                 if not np.isnan(data[i, j]):
                     heatmap_data.append(
                         {
                             "row": str(row_labels[i]),
                             "col": str(col_labels[j]),
                             "value": float(data[i, j]),
+                            "row_idx": i,
+                            "col_idx": j,
                         }
                     )
 
         df = pd.DataFrame(heatmap_data)
 
-        # Create heatmap
+        # Create heatmap with proper ordering
+        # For triangular heatmaps, we need to preserve the diagonal structure
         chart = (
             alt.Chart(df)
             .mark_rect()
             .encode(
-                x=alt.X("col:N", title=xlabel, axis=alt.Axis(labelAngle=-45)),
-                y=alt.Y("row:N", title=ylabel),
+                x=alt.X("col:N", title=xlabel, axis=alt.Axis(labelAngle=-45), sort=list(col_labels)),
+                y=alt.Y("row:N", title=ylabel, sort=list(row_labels)),
                 color=alt.Color(
-                    "value:Q", scale=alt.Scale(scheme="viridis", domain=[0, 1]), title="Normalized Mutual Information"
+                    "value:Q",
+                    scale=alt.Scale(scheme="viridis", domain=[0, 1]),
+                    title=["Normalized", "Mutual", "Information"],  # Multi-line title
                 ),
                 tooltip=["row:N", "col:N", alt.Tooltip("value:Q", format=".2f")],
             )
@@ -195,8 +202,8 @@ class AltairBackend(BasePlottingBackend):
             alt.Chart(df)
             .mark_text(baseline="middle")
             .encode(
-                x=alt.X("col:N"),
-                y=alt.Y("row:N"),
+                x=alt.X("col:N", sort=list(col_labels)),
+                y=alt.Y("row:N", sort=list(row_labels)),
                 text=alt.Text("value:Q", format=".2f"),
                 color=alt.condition(alt.datum.value > 0.5, alt.value("white"), alt.value("black")),
             )
