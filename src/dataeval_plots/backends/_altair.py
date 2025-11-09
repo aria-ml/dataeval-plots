@@ -8,7 +8,19 @@ from typing import Any
 from numpy.typing import NDArray
 
 from dataeval_plots.backends._base import BasePlottingBackend
-from dataeval_plots.backends._shared import calculate_projection, normalize_reference_outputs, project_steps
+from dataeval_plots.backends._shared import (
+    CHANNELWISE_METRICS,
+    calculate_projection,
+    image_to_base64_png,
+    normalize_image_to_uint8,
+    normalize_reference_outputs,
+    prepare_balance_data,
+    prepare_coverage_images,
+    prepare_diversity_data,
+    prepare_drift_data,
+    project_steps,
+    validate_class_names,
+)
 from dataeval_plots.protocols import (
     Indexable,
     PlottableBalance,
@@ -46,46 +58,22 @@ class AltairBackend(BasePlottingBackend):
         alt.VConcatChart or alt.HConcatChart
             Altair chart with image grid
         """
-        import base64
-        from io import BytesIO
-
         import altair as alt
-        import numpy as np
         import pandas as pd
-        from PIL import Image
 
-        if images is None:
-            raise ValueError("images parameter is required for coverage plotting")
-
-        if np.max(output.uncovered_indices) > len(images):
-            raise ValueError(
-                f"Uncovered indices {output.uncovered_indices} specify images "
-                f"unavailable in the provided number of images {len(images)}."
-            )
-
-        # Determine which images to plot
-        selected_indices = output.uncovered_indices[:top_k]
-        num_images = min(top_k, len(selected_indices))
+        # Use shared helper to prepare and validate images
+        selected_images, num_images, _, _ = prepare_coverage_images(output, images, top_k)
 
         # Convert images to base64 for Altair
         image_data = []
-        for idx, img in enumerate(images[:num_images]):
+        for idx, img in enumerate(selected_images):
             img_np = self.image_to_hwc(img)
 
-            # Normalize to 0-255 range if needed
-            img_np = (img_np * 255).astype(np.uint8) if img_np.max() <= 1.0 else img_np.astype(np.uint8)
+            # Normalize and convert to base64 using shared helpers
+            img_np = normalize_image_to_uint8(img_np)
+            img_str = image_to_base64_png(img_np)
 
-            # Convert to PIL Image
-            pil_img = Image.fromarray(img_np)
-
-            # Convert to base64
-            buffered = BytesIO()
-            pil_img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-
-            image_data.append(
-                {"index": idx, "row": idx // 3, "col": idx % 3, "image": f"data:image/png;base64,{img_str}"}
-            )
+            image_data.append({"index": idx, "row": idx // 3, "col": idx % 3, "image": img_str})
 
         df = pd.DataFrame(image_data)
 
@@ -127,37 +115,10 @@ class AltairBackend(BasePlottingBackend):
         import numpy as np
         import pandas as pd
 
-        if plot_classwise:
-            if row_labels is None:
-                row_labels = output.class_names
-            if col_labels is None:
-                col_labels = output.factor_names
-
-            data = output.classwise
-            xlabel = "Factors"
-            ylabel = "Class"
-            title = "Classwise Balance"
-        else:
-            # Combine balance and factors results
-            data = np.concatenate(
-                [
-                    output.balance[np.newaxis, 1:],
-                    output.factors,
-                ],
-                axis=0,
-            )
-            # Create a mask for the upper triangle
-            mask = np.triu(data + 1, k=0) < 1
-            data = np.where(mask, np.nan, data)[:-1]
-
-            if row_labels is None:
-                row_labels = output.factor_names[:-1]
-            if col_labels is None:
-                col_labels = output.factor_names[1:]
-
-            xlabel = ""
-            ylabel = ""
-            title = "Balance Heatmap"
+        # Use shared helper to prepare data
+        data, row_labels, col_labels, xlabel, ylabel, title = prepare_balance_data(
+            output, row_labels, col_labels, plot_classwise
+        )
 
         # Convert to long format for Altair
         rows, cols = data.shape
@@ -237,19 +198,16 @@ class AltairBackend(BasePlottingBackend):
         alt.Chart
             Altair chart (heatmap or bar chart)
         """
-        from dataclasses import asdict
-
         import altair as alt
         import pandas as pd
 
-        if plot_classwise:
-            if row_labels is None:
-                row_labels = output.class_names
-            if col_labels is None:
-                col_labels = output.factor_names
+        # Use shared helper to prepare data
+        data, row_labels, col_labels, xlabel, ylabel, title, method_name = prepare_diversity_data(
+            output, row_labels, col_labels, plot_classwise
+        )
 
+        if plot_classwise:
             # Create heatmap similar to balance
-            data = output.classwise
             rows, cols = data.shape
             heatmap_data = []
             for i in range(rows):
@@ -259,20 +217,21 @@ class AltairBackend(BasePlottingBackend):
                     )
 
             df = pd.DataFrame(heatmap_data)
-            method = asdict(output.meta())["arguments"]["method"].title()
 
             chart = (
                 alt.Chart(df)
                 .mark_rect()
                 .encode(
-                    x=alt.X("col:N", title="Factors", axis=alt.Axis(labelAngle=-45)),
-                    y=alt.Y("row:N", title="Class"),
+                    x=alt.X("col:N", title=xlabel, axis=alt.Axis(labelAngle=-45)),
+                    y=alt.Y("row:N", title=ylabel),
                     color=alt.Color(
-                        "value:Q", scale=alt.Scale(scheme="viridis", domain=[0, 1]), title=f"Normalized {method} Index"
+                        "value:Q",
+                        scale=alt.Scale(scheme="viridis", domain=[0, 1]),
+                        title=f"Normalized {method_name} Index",
                     ),
                     tooltip=["row:N", "col:N", alt.Tooltip("value:Q", format=".2f")],
                 )
-                .properties(width=400, height=400, title="Classwise Diversity")
+                .properties(width=400, height=400, title=title)
             )
 
             text = (
@@ -288,18 +247,17 @@ class AltairBackend(BasePlottingBackend):
 
             return chart + text
         # Bar chart for diversity indices
-        heat_labels = ["class_labels"] + list(output.factor_names)
-        df = pd.DataFrame({"factor": heat_labels, "diversity": output.diversity_index})
+        df = pd.DataFrame({"factor": row_labels, "diversity": output.diversity_index})
 
         return (
             alt.Chart(df)
             .mark_bar()
             .encode(
-                x=alt.X("factor:N", title="Factors", axis=alt.Axis(labelAngle=-45)),
-                y=alt.Y("diversity:Q", title="Diversity Index"),
+                x=alt.X("factor:N", title=xlabel, axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("diversity:Q", title=ylabel),
                 tooltip=["factor:N", alt.Tooltip("diversity:Q", format=".3f")],
             )
-            .properties(width=500, height=400, title="Diversity Index by Factor")
+            .properties(width=500, height=400, title=title)
         )
 
     def _plot_sufficiency(
@@ -345,8 +303,7 @@ class AltairBackend(BasePlottingBackend):
         for name, measures in output.averaged_measures.items():
             if measures.ndim > 1:
                 # Multi-class plotting
-                if class_names is not None and len(measures) != len(class_names):
-                    raise IndexError("Class name count does not align with measures")
+                validate_class_names(measures, class_names)
 
                 for i, values in enumerate(measures):
                     class_name = str(i) if class_names is None else class_names[i]
@@ -544,21 +501,9 @@ class AltairBackend(BasePlottingBackend):
                 )
                 charts.append(chart)
         else:
-            # Multi-channel histogram
-            channelwise_metrics = [
-                "mean",
-                "std",
-                "var",
-                "skew",
-                "zeros",
-                "brightness",
-                "contrast",
-                "darkness",
-                "entropy",
-            ]
-
+            # Multi-channel histogram - use shared constant
             for metric_name, metric_values in factors.items():
-                if metric_name in channelwise_metrics:
+                if metric_name in CHANNELWISE_METRICS:
                     # Reshape for channel-wise data
                     data = metric_values[ch_mask].reshape(-1, max_channels)
 
@@ -632,9 +577,10 @@ class AltairBackend(BasePlottingBackend):
         import altair as alt
         import pandas as pd
 
-        resdf = output.to_dataframe()
+        # Use shared helper to prepare drift data
+        resdf, _, _, _, is_sufficient = prepare_drift_data(output)
 
-        if resdf.shape[0] < 3:
+        if not is_sufficient:
             # Not enough data to plot
             return alt.Chart(pd.DataFrame()).mark_point().properties(title="Insufficient data for drift detection plot")
 

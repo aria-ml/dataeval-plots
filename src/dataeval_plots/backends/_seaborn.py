@@ -8,6 +8,13 @@ from typing import TYPE_CHECKING, Any
 from numpy.typing import NDArray
 
 from dataeval_plots.backends._base import BasePlottingBackend
+from dataeval_plots.backends._shared import (
+    CHANNELWISE_METRICS,
+    prepare_balance_data,
+    prepare_coverage_images,
+    prepare_diversity_data,
+    prepare_drift_data,
+)
 from dataeval_plots.protocols import (
     Indexable,
     PlottableBalance,
@@ -51,30 +58,18 @@ class SeabornBackend(BasePlottingBackend):
         import numpy as np
         import seaborn as sns
 
-        if images is None:
-            raise ValueError("images parameter is required for coverage plotting")
-
-        if np.max(output.uncovered_indices) > len(images):
-            raise ValueError(
-                f"Uncovered indices {output.uncovered_indices} specify images "
-                f"unavailable in the provided number of images {len(images)}."
-            )
-
         # Set seaborn style
         sns.set_style("white")
 
-        # Determine which images to plot
-        selected_indices = output.uncovered_indices[:top_k]
-        num_images = min(top_k, len(selected_indices))
+        # Use shared helper to prepare and validate images
+        selected_images, num_images, rows, cols = prepare_coverage_images(output, images, top_k)
 
-        rows = int(np.ceil(num_images / 3))
-        cols = min(3, num_images)
         fig, axs = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
 
         # Flatten axes using numpy array explicitly for compatibility
         axs_flat = np.asarray(axs).flatten()
 
-        for image, ax in zip(images[:num_images], axs_flat):
+        for image, ax in zip(selected_images, axs_flat):
             ax.imshow(self.image_to_hwc(image))
             ax.axis("off")
             # Add seaborn-style border
@@ -113,41 +108,13 @@ class SeabornBackend(BasePlottingBackend):
         matplotlib.figure.Figure
         """
         import matplotlib.pyplot as plt
-        import numpy as np
         import pandas as pd
         import seaborn as sns
 
-        if plot_classwise:
-            if row_labels is None:
-                row_labels = output.class_names
-            if col_labels is None:
-                col_labels = output.factor_names
-
-            data = output.classwise
-            xlabel = "Factors"
-            ylabel = "Class"
-            title = "Classwise Balance"
-        else:
-            # Combine balance and factors results
-            data = np.concatenate(
-                [
-                    output.balance[np.newaxis, 1:],
-                    output.factors,
-                ],
-                axis=0,
-            )
-            # Create a mask for the upper triangle
-            mask = np.triu(data + 1, k=0) < 1
-            data = np.where(mask, np.nan, data)[:-1]
-
-            if row_labels is None:
-                row_labels = output.factor_names[:-1]
-            if col_labels is None:
-                col_labels = output.factor_names[1:]
-
-            xlabel = ""
-            ylabel = ""
-            title = "Balance Heatmap"
+        # Use shared helper to prepare data
+        data, row_labels, col_labels, xlabel, ylabel, title = prepare_balance_data(
+            output, row_labels, col_labels, plot_classwise
+        )
 
         # Create DataFrame for seaborn
         df = pd.DataFrame(data, index=row_labels, columns=col_labels)  # type: ignore[arg-type]
@@ -202,21 +169,16 @@ class SeabornBackend(BasePlottingBackend):
         -------
         matplotlib.figure.Figure
         """
-        from dataclasses import asdict
-
         import matplotlib.pyplot as plt
         import pandas as pd
         import seaborn as sns
 
+        # Use shared helper to prepare data
+        data, row_labels, col_labels, xlabel, ylabel, title, method_name = prepare_diversity_data(
+            output, row_labels, col_labels, plot_classwise
+        )
+
         if plot_classwise:
-            if row_labels is None:
-                row_labels = output.class_names
-            if col_labels is None:
-                col_labels = output.factor_names
-
-            data = output.classwise
-            method = asdict(output.meta())["arguments"]["method"].title()
-
             # Create DataFrame for seaborn
             df = pd.DataFrame(data, index=row_labels, columns=col_labels)  # type: ignore[arg-type]
 
@@ -229,21 +191,20 @@ class SeabornBackend(BasePlottingBackend):
                 cmap="viridis",
                 vmin=0,
                 vmax=1,
-                cbar_kws={"label": f"Normalized {method} Index"},
+                cbar_kws={"label": f"Normalized {method_name} Index"},
                 linewidths=0.5,
                 linecolor="lightgray",
                 ax=ax,
             )
 
-            ax.set_xlabel("Factors", fontsize=12)
-            ax.set_ylabel("Class", fontsize=12)
-            ax.set_title("Classwise Diversity", fontsize=14, pad=20)
+            ax.set_xlabel(xlabel, fontsize=12)
+            ax.set_ylabel(ylabel, fontsize=12)
+            ax.set_title(title, fontsize=14, pad=20)
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
 
         else:
             # Bar chart for diversity indices
-            heat_labels = ["class_labels"] + list(output.factor_names)
-            df = pd.DataFrame({"factor": heat_labels, "diversity": output.diversity_index})
+            df = pd.DataFrame({"factor": row_labels, "diversity": output.diversity_index})
 
             fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -381,19 +342,8 @@ class SeabornBackend(BasePlottingBackend):
                 ax.set_visible(False)
 
         else:
-            # Multi-channel histogram
-            channelwise_metrics = [
-                "mean",
-                "std",
-                "var",
-                "skew",
-                "zeros",
-                "brightness",
-                "contrast",
-                "darkness",
-                "entropy",
-            ]
-            data_keys = [key for key in factors if key in channelwise_metrics]
+            # Multi-channel histogram - use shared constant
+            data_keys = [key for key in factors if key in CHANNELWISE_METRICS]
 
             num_metrics = len(data_keys)
             rows = math.ceil(num_metrics / 3)
@@ -461,10 +411,12 @@ class SeabornBackend(BasePlottingBackend):
         # Set seaborn style
         sns.set_style("whitegrid")
 
-        fig, ax = plt.subplots(dpi=300, figsize=(10, 6))
-        resdf = output.to_dataframe()
+        # Use shared helper to prepare drift data
+        resdf, trndf, tstdf, driftx, is_sufficient = prepare_drift_data(output)
 
-        if resdf.shape[0] < 3:
+        fig, ax = plt.subplots(dpi=300, figsize=(10, 6))
+
+        if not is_sufficient:
             ax.text(
                 0.5,
                 0.5,
@@ -476,13 +428,8 @@ class SeabornBackend(BasePlottingBackend):
             return fig
 
         xticks = np.arange(resdf.shape[0])
-        trndf = resdf[resdf["chunk"]["period"] == "reference"]
-        tstdf = resdf[resdf["chunk"]["period"] == "analysis"]
 
-        # Get local indices for drift markers
-        driftx = np.where(resdf["domain_classifier_auroc"]["alert"].values)  # type: ignore
-
-        if np.size(driftx) > 2:
+        if is_sufficient and np.size(driftx) > 2:
             # Use seaborn color palette
             colors = sns.color_palette("husl", 4)
 

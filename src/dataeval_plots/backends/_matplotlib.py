@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
@@ -11,7 +10,18 @@ import numpy as np
 from numpy.typing import NDArray
 
 from dataeval_plots.backends._base import BasePlottingBackend
-from dataeval_plots.backends._shared import calculate_projection, normalize_reference_outputs, project_steps
+from dataeval_plots.backends._shared import (
+    CHANNELWISE_METRICS,
+    calculate_projection,
+    calculate_subplot_grid,
+    normalize_reference_outputs,
+    prepare_balance_data,
+    prepare_coverage_images,
+    prepare_diversity_data,
+    prepare_drift_data,
+    project_steps,
+    validate_class_names,
+)
 from dataeval_plots.protocols import (
     Indexable,
     PlottableBalance,
@@ -176,8 +186,7 @@ class MatplotlibBackend(BasePlottingBackend):
         import matplotlib.pyplot as plt
 
         num_metrics = len(data_dict)
-        rows = math.ceil(num_metrics / 3)
-        cols = min(num_metrics, 3)
+        rows, cols = calculate_subplot_grid(num_metrics)
         fig, axs = plt.subplots(rows, 3, figsize=(cols * 3 + 1, rows * 3))
         axs_flat = np.asarray(axs).flatten()
         for ax, metric in zip(
@@ -233,13 +242,12 @@ class MatplotlibBackend(BasePlottingBackend):
         """
         import matplotlib.pyplot as plt
 
-        channelwise_metrics = ["mean", "std", "var", "skew", "zeros", "brightness", "contrast", "darkness", "entropy"]
-        data_keys = [key for key in data_dict if key in channelwise_metrics]
+        # Use shared constant for channelwise metrics
+        data_keys = [key for key in data_dict if key in CHANNELWISE_METRICS]
         label_kwargs = {"label": [f"Channel {i}" for i in range(max_channels)]}
 
         num_metrics = len(data_keys)
-        rows = math.ceil(num_metrics / 3)
-        cols = min(num_metrics, 3)
+        rows, cols = calculate_subplot_grid(num_metrics)
         fig, axs = plt.subplots(rows, 3, figsize=(cols * 3 + 1, rows * 3))
         axs_flat = np.asarray(axs).flatten()
         for ax, metric in zip(
@@ -297,29 +305,15 @@ class MatplotlibBackend(BasePlottingBackend):
         import matplotlib.pyplot as plt
         import numpy as np
 
-        if images is None:
-            raise ValueError("images parameter is required for coverage plotting")
+        # Use shared helper to prepare and validate images
+        selected_images, num_images, rows, cols = prepare_coverage_images(output, images, top_k)
 
-        if np.max(output.uncovered_indices) > len(images):
-            raise ValueError(
-                f"Uncovered indices {output.uncovered_indices} specify images "
-                f"unavailable in the provided number of images {len(images)}."
-            )
-
-        # Determine which images to plot
-        selected_indices = output.uncovered_indices[:top_k]
-
-        # Plot the images
-        num_images = min(top_k, len(selected_indices))
-
-        rows = int(np.ceil(num_images / 3))
-        cols = min(3, num_images)
         fig, axs = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
 
         # Flatten axes using numpy array explicitly for compatibility
         axs_flat = np.asarray(axs).flatten()
 
-        for image, ax in zip(images[:num_images], axs_flat):
+        for image, ax in zip(selected_images, axs_flat):
             ax.imshow(self.image_to_hwc(image))
             ax.axis("off")
 
@@ -356,49 +350,19 @@ class MatplotlibBackend(BasePlottingBackend):
         """
         import numpy as np
 
-        if plot_classwise:
-            if row_labels is None:
-                row_labels = output.class_names
-            if col_labels is None:
-                col_labels = output.factor_names
+        # Use shared helper to prepare data
+        data, row_labels, col_labels, xlabel, ylabel, title = prepare_balance_data(
+            output, row_labels, col_labels, plot_classwise
+        )
 
-            fig = self.heatmap(
-                output.classwise,
-                np.asarray(row_labels),
-                np.asarray(col_labels),
-                xlabel="Factors",
-                ylabel="Class",
-                cbarlabel="Normalized Mutual Information",
-            )
-        else:
-            # Combine balance and factors results
-            data = np.concatenate(
-                [
-                    output.balance[np.newaxis, 1:],
-                    output.factors,
-                ],
-                axis=0,
-            )
-            # Create a mask for the upper triangle of the symmetrical array, ignoring the diagonal
-            mask = np.triu(data + 1, k=0) < 1
-            # Finalize the data for the plot, last row is last factor x last factor so it gets dropped
-            heat_data = np.where(mask, np.nan, data)[:-1]
-            # Creating label array for heat map axes
-            heat_labels = output.factor_names
-
-            if row_labels is None:
-                row_labels = heat_labels[:-1]
-            if col_labels is None:
-                col_labels = heat_labels[1:]
-
-            fig = self.heatmap(
-                heat_data,
-                np.asarray(row_labels),
-                np.asarray(col_labels),
-                cbarlabel="Normalized Mutual Information",
-            )
-
-        return fig
+        return self.heatmap(
+            data,
+            np.asarray(row_labels),
+            np.asarray(col_labels),
+            xlabel=xlabel,
+            ylabel=ylabel,
+            cbarlabel="Normalized Mutual Information",
+        )
 
     def _plot_diversity(
         self,
@@ -425,31 +389,27 @@ class MatplotlibBackend(BasePlottingBackend):
         -------
         matplotlib.figure.Figure
         """
-        from dataclasses import asdict
-
         import matplotlib.pyplot as plt
 
-        if plot_classwise:
-            if row_labels is None:
-                row_labels = output.class_names
-            if col_labels is None:
-                col_labels = output.factor_names
+        # Use shared helper to prepare data
+        data, row_labels, col_labels, xlabel, ylabel, title, method_name = prepare_diversity_data(
+            output, row_labels, col_labels, plot_classwise
+        )
 
+        if plot_classwise:
             fig = self.heatmap(
-                output.classwise,
+                data,
                 np.asarray(row_labels),
                 np.asarray(col_labels),
-                xlabel="Factors",
-                ylabel="Class",
-                cbarlabel=f"Normalized {asdict(output.meta())['arguments']['method'].title()} Index",
+                xlabel=xlabel,
+                ylabel=ylabel,
+                cbarlabel=f"Normalized {method_name} Index",
             )
-
         else:
-            # Creating label array for heat map axes
+            # Bar chart for diversity indices
             fig, ax = plt.subplots(figsize=(8, 8))
-            heat_labels = ["class_labels"] + list(output.factor_names)
-            ax.bar(heat_labels, output.diversity_index)
-            ax.set_xlabel("Factors")
+            ax.bar(row_labels, output.diversity_index)
+            ax.set_xlabel(xlabel)
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
             fig.tight_layout()
 
@@ -574,8 +534,7 @@ class MatplotlibBackend(BasePlottingBackend):
     ) -> None:
         from matplotlib import pyplot as plt
 
-        if class_names is not None and len(averaged_measure) != len(class_names):
-            raise IndexError("Class name count does not align with measures")
+        validate_class_names(averaged_measure, class_names)
         for i, values in enumerate(averaged_measure):
             # Create a plot for each class
             fig, ax = plt.subplots()
@@ -737,14 +696,13 @@ class MatplotlibBackend(BasePlottingBackend):
         import matplotlib.pyplot as plt
         import numpy as np
 
+        # Use shared helper to prepare drift data
+        resdf, trndf, tstdf, driftx, is_sufficient = prepare_drift_data(output)
+
         fig, ax = plt.subplots(dpi=300)
-        resdf = output.to_dataframe()
         xticks = np.arange(resdf.shape[0])
-        trndf = resdf[resdf["chunk"]["period"] == "reference"]
-        tstdf = resdf[resdf["chunk"]["period"] == "analysis"]
-        # Get local indices for drift markers
-        driftx = np.where(resdf["domain_classifier_auroc"]["alert"].values)  # type: ignore
-        if np.size(driftx) > 2:
+
+        if is_sufficient and np.size(driftx) > 2:
             ax.plot(resdf.index, resdf["domain_classifier_auroc"]["upper_threshold"], "r--", label="thr_up")
             ax.plot(resdf.index, resdf["domain_classifier_auroc"]["lower_threshold"], "r--", label="thr_low")
             ax.plot(trndf.index, trndf["domain_classifier_auroc"]["value"], "b", label="train")

@@ -8,7 +8,19 @@ from typing import Any
 from numpy.typing import NDArray
 
 from dataeval_plots.backends._base import BasePlottingBackend
-from dataeval_plots.backends._shared import calculate_projection, project_steps
+from dataeval_plots.backends._shared import (
+    CHANNELWISE_METRICS,
+    calculate_projection,
+    calculate_subplot_grid,
+    image_to_base64_png,
+    normalize_image_to_uint8,
+    prepare_balance_data,
+    prepare_coverage_images,
+    prepare_diversity_data,
+    prepare_drift_data,
+    project_steps,
+    validate_class_names,
+)
 from dataeval_plots.protocols import (
     Indexable,
     PlottableBalance,
@@ -45,28 +57,10 @@ class PlotlyBackend(BasePlottingBackend):
         -------
         plotly.graph_objects.Figure
         """
-        import base64
-        from io import BytesIO
-
-        import numpy as np
-        from PIL import Image
         from plotly.subplots import make_subplots
 
-        if images is None:
-            raise ValueError("images parameter is required for coverage plotting")
-
-        if np.max(output.uncovered_indices) > len(images):
-            raise ValueError(
-                f"Uncovered indices {output.uncovered_indices} specify images "
-                f"unavailable in the provided number of images {len(images)}."
-            )
-
-        # Determine which images to plot
-        selected_indices = output.uncovered_indices[:top_k]
-        num_images = min(top_k, len(selected_indices))
-
-        rows = int(np.ceil(num_images / 3))
-        cols = min(3, num_images)
+        # Use shared helper to prepare and validate images
+        selected_images, num_images, rows, cols = prepare_coverage_images(output, images, top_k)
 
         # Create subplots
         fig = make_subplots(
@@ -75,19 +69,12 @@ class PlotlyBackend(BasePlottingBackend):
             subplot_titles=[f"Image {i}" for i in range(num_images)],
         )
 
-        for idx, img in enumerate(images[:num_images]):
+        for idx, img in enumerate(selected_images):
             img_np = self.image_to_hwc(img)
 
-            # Normalize to 0-255 range if needed
-            img_np = (img_np * 255).astype(np.uint8) if img_np.max() <= 1.0 else img_np.astype(np.uint8)
-
-            # Convert to PIL Image
-            pil_img = Image.fromarray(img_np)
-
-            # Convert to base64
-            buffered = BytesIO()
-            pil_img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
+            # Normalize and convert to base64 using shared helpers
+            img_np = normalize_image_to_uint8(img_np)
+            img_str = image_to_base64_png(img_np)
 
             row = idx // 3 + 1
             col = idx % 3 + 1
@@ -95,7 +82,7 @@ class PlotlyBackend(BasePlottingBackend):
             # Add image to subplot
             fig.add_layout_image(
                 {
-                    "source": f"data:image/png;base64,{img_str}",
+                    "source": img_str,
                     "xref": f"x{idx + 1}" if idx > 0 else "x",
                     "yref": f"y{idx + 1}" if idx > 0 else "y",
                     "x": 0,
@@ -150,49 +137,27 @@ class PlotlyBackend(BasePlottingBackend):
         import numpy as np
         import plotly.graph_objects as go
 
-        if plot_classwise:
-            if row_labels is None:
-                row_labels = output.class_names
-            if col_labels is None:
-                col_labels = output.factor_names
-
-            data = output.classwise
-            xlabel = "Factors"
-            ylabel = "Class"
-            title = "Classwise Balance"
-        else:
-            # Combine balance and factors results
-            data = np.concatenate(
-                [
-                    output.balance[np.newaxis, 1:],
-                    output.factors,
-                ],
-                axis=0,
-            )
-            # Create a mask for the upper triangle
-            mask = np.triu(data + 1, k=0) < 1
-            data = np.where(mask, np.nan, data)[:-1]
-
-            if row_labels is None:
-                row_labels = output.factor_names[:-1]
-            if col_labels is None:
-                col_labels = output.factor_names[1:]
-
-            xlabel = ""
-            ylabel = ""
-            title = "Balance Heatmap"
+        # Use shared helper to prepare data
+        data, row_labels, col_labels, xlabel, ylabel, title = prepare_balance_data(
+            output, row_labels, col_labels, plot_classwise
+        )
 
         # Create heatmap with annotations
         # For triangular heatmaps (non-classwise), we mask NaN values to show only upper triangle
         text = [[f"{val:.2f}" if not np.isnan(val) else "" for val in row] for row in data]
 
         # Create custom hover text that handles NaN values properly
+        # Ensure we only iterate up to the length of the labels to avoid index errors
         hovertext = []
         customdata = []
         for i, row in enumerate(data):
+            if i >= len(row_labels):
+                break
             hovertext_row = []
             customdata_row = []
             for j, val in enumerate(row):
+                if j >= len(col_labels):
+                    break
                 if not np.isnan(val):
                     hovertext_row.append(f"Row: {row_labels[i]}<br>Col: {col_labels[j]}<br>Value: {val:.2f}")
                     customdata_row.append(val)
@@ -259,19 +224,14 @@ class PlotlyBackend(BasePlottingBackend):
         -------
         plotly.graph_objects.Figure
         """
-        from dataclasses import asdict
-
         import plotly.graph_objects as go
 
+        # Use shared helper to prepare data
+        data, row_labels, col_labels, xlabel, ylabel, title, method_name = prepare_diversity_data(
+            output, row_labels, col_labels, plot_classwise
+        )
+
         if plot_classwise:
-            if row_labels is None:
-                row_labels = output.class_names
-            if col_labels is None:
-                col_labels = output.factor_names
-
-            data = output.classwise
-            method = asdict(output.meta())["arguments"]["method"].title()
-
             # Create heatmap with annotations
             text = [[f"{val:.2f}" for val in row] for row in data]
 
@@ -286,26 +246,24 @@ class PlotlyBackend(BasePlottingBackend):
                     text=text,
                     texttemplate="%{text}",
                     textfont={"size": 10},
-                    colorbar={"title": f"Normalized {method} Index"},
+                    colorbar={"title": f"Normalized {method_name} Index"},
                     hovertemplate="Row: %{y}<br>Col: %{x}<br>Value: %{z:.2f}<extra></extra>",
                 )
             )
 
             fig.update_layout(
-                title="Classwise Diversity",
-                xaxis_title="Factors",
-                yaxis_title="Class",
+                title=title,
+                xaxis_title=xlabel,
+                yaxis_title=ylabel,
                 width=600,
                 height=600,
                 xaxis={"tickangle": -45},
             )
         else:
             # Bar chart for diversity indices
-            heat_labels = ["class_labels"] + list(output.factor_names)
-
             fig = go.Figure(
                 data=go.Bar(
-                    x=heat_labels,
+                    x=row_labels,
                     y=output.diversity_index,
                     marker={"color": output.diversity_index, "colorscale": "Viridis", "showscale": True},
                     text=[f"{val:.3f}" for val in output.diversity_index],
@@ -315,9 +273,9 @@ class PlotlyBackend(BasePlottingBackend):
             )
 
             fig.update_layout(
-                title="Diversity Index by Factor",
-                xaxis_title="Factors",
-                yaxis_title="Diversity Index",
+                title=title,
+                xaxis_title=xlabel,
+                yaxis_title=ylabel,
                 width=700,
                 height=500,
                 xaxis={"tickangle": -45},
@@ -368,8 +326,7 @@ class PlotlyBackend(BasePlottingBackend):
         for name, measures in output.averaged_measures.items():
             if measures.ndim > 1:
                 # Multi-class plotting
-                if class_names is not None and len(measures) != len(class_names):
-                    raise IndexError("Class name count does not align with measures")
+                validate_class_names(measures, class_names)
 
                 for i, values in enumerate(measures):
                     class_name = str(i) if class_names is None else class_names[i]
@@ -520,8 +477,6 @@ class PlotlyBackend(BasePlottingBackend):
         -------
         plotly.graph_objects.Figure
         """
-        import math
-
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
 
@@ -534,8 +489,7 @@ class PlotlyBackend(BasePlottingBackend):
         if max_channels == 1:
             # Single channel histogram
             num_metrics = len(factors)
-            rows = math.ceil(num_metrics / 3)
-            cols = min(num_metrics, 3)
+            rows, cols = calculate_subplot_grid(num_metrics)
 
             fig = make_subplots(
                 rows=rows,
@@ -565,23 +519,11 @@ class PlotlyBackend(BasePlottingBackend):
             fig.update_layout(height=300 * rows, width=300 * cols, title="Base Statistics Histograms")
 
         else:
-            # Multi-channel histogram
-            channelwise_metrics = [
-                "mean",
-                "std",
-                "var",
-                "skew",
-                "zeros",
-                "brightness",
-                "contrast",
-                "darkness",
-                "entropy",
-            ]
-            data_keys = [key for key in factors if key in channelwise_metrics]
+            # Multi-channel histogram - use shared constant
+            data_keys = [key for key in factors if key in CHANNELWISE_METRICS]
 
             num_metrics = len(data_keys)
-            rows = math.ceil(num_metrics / 3)
-            cols = min(num_metrics, 3)
+            rows, cols = calculate_subplot_grid(num_metrics)
 
             fig = make_subplots(
                 rows=rows,
@@ -639,12 +581,12 @@ class PlotlyBackend(BasePlottingBackend):
         -------
         plotly.graph_objects.Figure
         """
-        import numpy as np
         import plotly.graph_objects as go
 
-        resdf = output.to_dataframe()
+        # Use shared helper to prepare drift data
+        resdf, trndf, tstdf, driftx, is_sufficient = prepare_drift_data(output)
 
-        if resdf.shape[0] < 3:
+        if not is_sufficient:
             fig = go.Figure()
             fig.add_annotation(
                 text="Insufficient data for drift detection plot",
@@ -657,11 +599,6 @@ class PlotlyBackend(BasePlottingBackend):
             return fig
 
         fig = go.Figure()
-
-        # Prepare data
-        trndf = resdf[resdf["chunk"]["period"] == "reference"]
-        tstdf = resdf[resdf["chunk"]["period"] == "analysis"]
-        driftx = np.where(resdf["domain_classifier_auroc"]["alert"].values)[0]  # type: ignore
 
         # Threshold lines
         fig.add_trace(
