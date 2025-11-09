@@ -27,6 +27,7 @@ __all__ = [
     "prepare_coverage_images",
     "normalize_image_to_uint8",
     "image_to_base64_png",
+    "image_to_hwc",
     "calculate_subplot_grid",
     "validate_class_names",
     "CHANNELWISE_METRICS",
@@ -358,6 +359,27 @@ def image_to_base64_png(img_np: NDArray[Any]) -> str:
     img_str = base64.b64encode(buffered.getvalue()).decode()
 
     return f"data:image/png;base64,{img_str}"
+
+
+def image_to_hwc(image: NDArray[Any]) -> NDArray[Any]:
+    """Convert image array to Height-Width-Channel (HWC) format.
+
+    Parameters
+    ----------
+    image : NDArray[Any]
+        Input image array
+
+    Returns
+    -------
+    NDArray[Any]
+        Image in HWC format
+    """
+    image = np.asarray(image)
+    if image.ndim == 2:
+        return image[:, :, np.newaxis]  # Grayscale to HWC
+    if image.shape[0] in {1, 3, 4}:
+        return np.transpose(image, (1, 2, 0))  # Channels-first to HWC
+    return image  # Assume already HWC
 
 
 def calculate_subplot_grid(num_items: int, cols_per_row: int = 3) -> tuple[int, int]:

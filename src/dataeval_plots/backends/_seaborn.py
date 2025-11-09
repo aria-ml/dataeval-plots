@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
+    image_to_hwc,
     prepare_balance_data,
     prepare_coverage_images,
     prepare_diversity_data,
@@ -70,7 +71,7 @@ class SeabornBackend(BasePlottingBackend):
         axs_flat = np.asarray(axs).flatten()
 
         for image, ax in zip(selected_images, axs_flat):
-            ax.imshow(self.image_to_hwc(image))
+            ax.imshow(image_to_hwc(image))
             ax.axis("off")
             # Add seaborn-style border
             sns.despine(ax=ax, left=True, bottom=True)

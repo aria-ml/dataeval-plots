@@ -14,6 +14,7 @@ from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
     calculate_projection,
     calculate_subplot_grid,
+    image_to_hwc,
     normalize_reference_outputs,
     prepare_balance_data,
     prepare_coverage_images,
@@ -314,7 +315,7 @@ class MatplotlibBackend(BasePlottingBackend):
         axs_flat = np.asarray(axs).flatten()
 
         for image, ax in zip(selected_images, axs_flat):
-            ax.imshow(self.image_to_hwc(image))
+            ax.imshow(image_to_hwc(image))
             ax.axis("off")
 
         for ax in axs_flat[num_images:]:

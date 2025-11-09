@@ -12,6 +12,7 @@ from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
     calculate_projection,
     image_to_base64_png,
+    image_to_hwc,
     normalize_image_to_uint8,
     normalize_reference_outputs,
     prepare_balance_data,
@@ -67,7 +68,7 @@ class AltairBackend(BasePlottingBackend):
         # Convert images to base64 for Altair
         image_data = []
         for idx, img in enumerate(selected_images):
-            img_np = self.image_to_hwc(img)
+            img_np = image_to_hwc(img)
 
             # Normalize and convert to base64 using shared helpers
             img_np = normalize_image_to_uint8(img_np)

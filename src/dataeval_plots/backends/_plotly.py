@@ -13,6 +13,7 @@ from dataeval_plots.backends._shared import (
     calculate_projection,
     calculate_subplot_grid,
     image_to_base64_png,
+    image_to_hwc,
     normalize_image_to_uint8,
     prepare_balance_data,
     prepare_coverage_images,
@@ -70,7 +71,7 @@ class PlotlyBackend(BasePlottingBackend):
         )
 
         for idx, img in enumerate(selected_images):
-            img_np = self.image_to_hwc(img)
+            img_np = image_to_hwc(img)
 
             # Normalize and convert to base64 using shared helpers
             img_np = normalize_image_to_uint8(img_np)

@@ -6,9 +6,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from typing import Any, Protocol, cast
 
-import numpy as np
-from numpy.typing import NDArray
-
 from dataeval_plots.protocols import (
     Indexable,
     Plottable,
@@ -49,26 +46,6 @@ class BasePlottingBackend(ABC):
     This class provides the routing logic based on plot_type() and delegates
     to abstract methods that subclasses must implement.
     """
-
-    def image_to_hwc(self, image: NDArray[Any]) -> NDArray[Any]:
-        """Convert image array to Height-Width-Channel (HWC) format.
-
-        Parameters
-        ----------
-        image : NDArray[Any]
-            Input image array
-
-        Returns
-        -------
-        NDArray[Any]
-            Image in HWC format
-        """
-        image = np.asarray(image)
-        if image.ndim == 2:
-            return image[:, :, np.newaxis]  # Grayscale to HWC
-        if image.shape[0] in {1, 3, 4}:
-            return np.transpose(image, (1, 2, 0))  # Channels-first to HWC
-        return image  # Assume already HWC
 
     def plot(self, output: Plottable, **kwargs: Any) -> Any:
         """
