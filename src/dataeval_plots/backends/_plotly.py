@@ -23,6 +23,7 @@ from dataeval_plots.backends._shared import (
     validate_class_names,
 )
 from dataeval_plots.protocols import (
+    Dataset,
     Indexable,
     PlottableBalance,
     PlottableBaseStats,
@@ -247,7 +248,12 @@ class PlotlyBackend(BasePlottingBackend):
                     text=text,
                     texttemplate="%{text}",
                     textfont={"size": 10},
-                    colorbar={"title": {"text": f"Normalized {method_name} Index", "side": "right"}},
+                    colorbar={
+                        "title": {
+                            "text": f"Normalized {method_name} Index",
+                            "side": "right",
+                        }
+                    },
                     hovertemplate="Row: %{y}<br>Col: %{x}<br>Value: %{z:.2f}<extra></extra>",
                 )
             )
@@ -266,7 +272,11 @@ class PlotlyBackend(BasePlottingBackend):
                 data=go.Bar(
                     x=row_labels,
                     y=output.diversity_index,
-                    marker={"color": output.diversity_index, "colorscale": "Viridis", "showscale": True},
+                    marker={
+                        "color": output.diversity_index,
+                        "colorscale": "Viridis",
+                        "showscale": True,
+                    },
                     text=[f"{val:.3f}" for val in output.diversity_index],
                     textposition="outside",
                     hovertemplate="Factor: %{x}<br>Diversity: %{y:.3f}<extra></extra>",
@@ -515,7 +525,12 @@ class PlotlyBackend(BasePlottingBackend):
                 )
 
                 fig.update_xaxes(title_text="Values", row=row, col=col)
-                fig.update_yaxes(title_text="Counts", type="log" if log else "linear", row=row, col=col)
+                fig.update_yaxes(
+                    title_text="Counts",
+                    type="log" if log else "linear",
+                    row=row,
+                    col=col,
+                )
 
             fig.update_layout(height=300 * rows, width=300 * cols, title="Base Statistics Histograms")
 
@@ -555,7 +570,12 @@ class PlotlyBackend(BasePlottingBackend):
                     )
 
                 fig.update_xaxes(title_text="Values", row=row, col=col)
-                fig.update_yaxes(title_text="Counts", type="log" if log else "linear", row=row, col=col)
+                fig.update_yaxes(
+                    title_text="Counts",
+                    type="log" if log else "linear",
+                    row=row,
+                    col=col,
+                )
 
             fig.update_layout(
                 height=300 * rows,
@@ -669,6 +689,101 @@ class PlotlyBackend(BasePlottingBackend):
             width=900,
             height=500,
             hovermode="closest",
+        )
+
+        return fig
+
+    def _plot_image_grid(
+        self,
+        dataset: Dataset,
+        indices: Sequence[int],
+        images_per_row: int = 3,
+        figsize: tuple[int, int] = (10, 10),
+    ) -> Any:
+        """
+        Plot a grid of images from a dataset using Plotly.
+
+        Parameters
+        ----------
+        dataset : Dataset
+            MAITE-compatible dataset containing images
+        indices : Sequence[int]
+            Indices of images to plot from the dataset
+        images_per_row : int, default 3
+            Number of images to display per row
+        figsize : tuple[int, int], default (10, 10)
+            Figure size in inches (width, height) - converted to pixels
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+        """
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        num_images = len(indices)
+        num_rows = (num_images + images_per_row - 1) // images_per_row
+
+        # Create subplots with proper spacing
+        fig = make_subplots(
+            rows=num_rows,
+            cols=images_per_row,
+            horizontal_spacing=0.02,
+            vertical_spacing=0.02,
+        )
+
+        for i, idx in enumerate(indices):
+            row = i // images_per_row + 1
+            col = i % images_per_row + 1
+
+            # Get image from dataset and convert to HWC format
+            image = dataset[idx][0]
+            image_hwc = image_to_hwc(image)
+            image_uint8 = normalize_image_to_uint8(image_hwc)
+            img_height, img_width = image_uint8.shape[:2]
+
+            # Add image as a trace - using Image trace which auto-fills the subplot
+            fig.add_trace(
+                go.Image(z=image_uint8),
+                row=row,
+                col=col,
+            )
+
+            # Set the axis ranges to match the image dimensions for proper aspect ratio
+            xaxis_name = "xaxis" if i == 0 else f"xaxis{i + 1}"
+            yaxis_name = "yaxis" if i == 0 else f"yaxis{i + 1}"
+            # For scaleanchor, use the axis reference format (e.g., "y", "y2", "y3")
+            yaxis_ref = "y" if i == 0 else f"y{i + 1}"
+
+            fig.update_layout(
+                {
+                    xaxis_name: {
+                        "range": [0, img_width],
+                        "showticklabels": False,
+                        "showgrid": False,
+                        "zeroline": False,
+                        "scaleanchor": yaxis_ref,
+                        "scaleratio": 1,
+                    },
+                    yaxis_name: {
+                        "range": [img_height, 0],  # Inverted for correct image orientation
+                        "showticklabels": False,
+                        "showgrid": False,
+                        "zeroline": False,
+                    },
+                }
+            )
+
+        # Update layout to set overall size
+        width_px = figsize[0] * 100
+        height_px = figsize[1] * 100
+
+        fig.update_layout(
+            width=width_px,
+            height=height_px,
+            showlegend=False,
+            margin={"l": 0, "r": 0, "t": 30, "b": 0},
+            title="Image Grid",
         )
 
         return fig

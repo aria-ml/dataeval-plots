@@ -23,6 +23,7 @@ from dataeval_plots.backends._shared import (
     validate_class_names,
 )
 from dataeval_plots.protocols import (
+    Dataset,
     Indexable,
     PlottableBalance,
     PlottableBaseStats,
@@ -649,4 +650,72 @@ class AltairBackend(BasePlottingBackend):
         # Combine all layers
         return (upper_line + lower_line + train_line + test_line + drift_points).properties(
             width=600, height=400, title="Domain Classifier, Drift Detection"
+        )
+
+    def _plot_image_grid(
+        self,
+        dataset: Dataset,
+        indices: Sequence[int],
+        images_per_row: int = 3,
+        figsize: tuple[int, int] = (10, 10),
+    ) -> Any:
+        """
+        Plot a grid of images from a dataset using Altair.
+
+        Parameters
+        ----------
+        dataset : Dataset
+            MAITE-compatible dataset containing images
+        indices : Sequence[int]
+            Indices of images to plot from the dataset
+        images_per_row : int, default 3
+            Number of images to display per row
+        figsize : tuple[int, int], default (10, 10)
+            Figure size in inches (width, height) - converted to pixels
+
+        Returns
+        -------
+        altair.Chart
+            Altair chart with concatenated image subplots
+        """
+        import altair as alt
+        import pandas as pd
+
+        num_images = len(indices)
+        num_rows = (num_images + images_per_row - 1) // images_per_row
+
+        # Convert figsize to approximate pixel dimensions
+        img_width = int((figsize[0] * 100) / images_per_row)
+        img_height = int((figsize[1] * 100) / num_rows)
+
+        # Prepare all image data with grid positions
+        image_data = []
+        for i, idx in enumerate(indices):
+            # Get image from dataset and convert to base64
+            image = dataset[idx][0]
+            image_hwc = image_to_hwc(image)
+            image_uint8 = normalize_image_to_uint8(image_hwc)
+            img_base64 = image_to_base64_png(image_uint8)
+
+            row = i // images_per_row
+            col = i % images_per_row
+
+            image_data.append({"image": img_base64, "row": row, "col": col, "idx": idx})
+
+        df = pd.DataFrame(image_data)
+
+        # Create a single chart with proper positioning
+        return (
+            alt.Chart(df)
+            .mark_image(width=img_width, height=img_height)
+            .encode(
+                url="image:N",
+                x=alt.X("col:O", axis=None, scale=alt.Scale(padding=0)),
+                y=alt.Y("row:O", axis=None, scale=alt.Scale(padding=0)),
+            )
+            .properties(
+                width=img_width * images_per_row,
+                height=img_height * num_rows,
+                title="Image Grid",
+            )
         )

@@ -7,19 +7,31 @@ from typing import Any, overload
 
 from numpy.typing import NDArray
 
-from dataeval_plots._registry import get_available_backends, get_backend, register_backend, set_default_backend
+from dataeval_plots._registry import (
+    get_available_backends,
+    get_backend,
+    register_backend,
+    set_default_backend,
+)
 from dataeval_plots.protocols import (
+    Dataset,
     Indexable,
-    Plottable,
     PlottableBalance,
     PlottableBaseStats,
     PlottableCoverage,
     PlottableDiversity,
     PlottableDriftMVDC,
     PlottableSufficiency,
+    PlottableType,
 )
 
-__all__ = ["plot", "register_backend", "set_default_backend", "get_backend", "get_available_backends"]
+__all__ = [
+    "plot",
+    "register_backend",
+    "set_default_backend",
+    "get_backend",
+    "get_available_backends",
+]
 
 
 @overload
@@ -92,14 +104,26 @@ def plot(
 
 @overload
 def plot(
-    output: Plottable,
+    output: Dataset,
+    /,
+    backend: str | None = None,
+    *,
+    indices: Sequence[int],
+    images_per_row: int = 3,
+    figsize: tuple[int, int] = (10, 10),
+) -> Any: ...
+
+
+@overload
+def plot(
+    output: PlottableType,
     /,
     backend: str | None = None,
     **kwargs: Any,
 ) -> Any: ...
 
 
-def plot(output: Plottable, /, backend: str | None = None, **kwargs: Any) -> Any:
+def plot(output: PlottableType, /, backend: str | None = None, **kwargs: Any) -> Any:
     """
     Plot any DataEval output object.
 

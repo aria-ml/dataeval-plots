@@ -5,6 +5,7 @@ from __future__ import annotations
 import altair as alt
 import pytest
 from conftest import (
+    MockDataset,
     MockPlottableBalance,
     MockPlottableBaseStats,
     MockPlottableCoverage,
@@ -222,3 +223,37 @@ class TestAltairBackend:
         result = backend.plot(mock_drift_mvdc)
 
         assert isinstance(result, (alt.Chart, alt.LayerChart))
+
+    def test_plot_image_grid(
+        self,
+        backend: AltairBackend,
+        mock_dataset: MockDataset,
+    ) -> None:
+        """Test plotting image grid."""
+        indices = [0, 1, 2, 3, 4, 5]
+        result = backend.plot(mock_dataset, indices=indices)
+
+        # Altair returns a VConcatChart for image grids
+        assert isinstance(result, (alt.Chart, alt.VConcatChart))
+
+    def test_plot_image_grid_custom_layout(
+        self,
+        backend: AltairBackend,
+        mock_dataset: MockDataset,
+    ) -> None:
+        """Test plotting image grid with custom layout."""
+        indices = [0, 1, 2, 3]
+        result = backend.plot(mock_dataset, indices=indices, images_per_row=2, figsize=(8, 8))
+
+        assert isinstance(result, (alt.Chart, alt.VConcatChart))
+
+    def test_plot_image_grid_single_image(
+        self,
+        backend: AltairBackend,
+        mock_dataset: MockDataset,
+    ) -> None:
+        """Test plotting image grid with single image."""
+        indices = [0]
+        result = backend.plot(mock_dataset, indices=indices, images_per_row=3)
+
+        assert isinstance(result, (alt.Chart, alt.VConcatChart, alt.HConcatChart))

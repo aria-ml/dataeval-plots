@@ -6,6 +6,7 @@ import pytest
 
 from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.protocols import (
+    Dataset,
     PlottableBalance,
     PlottableBaseStats,
     PlottableCoverage,
@@ -64,6 +65,15 @@ class MockBackend(BasePlottingBackend):
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
+    ) -> None:
+        pass
+
+    def _plot_image_grid(
+        self,
+        dataset: Dataset,
+        indices: Any,
+        images_per_row: int,
+        figsize: tuple[int, int],
     ) -> None:
         pass
 

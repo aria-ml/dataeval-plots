@@ -9,14 +9,15 @@ from typing import Any, Protocol, cast, overload
 from numpy.typing import NDArray
 
 from dataeval_plots.protocols import (
+    Dataset,
     Indexable,
-    Plottable,
     PlottableBalance,
     PlottableBaseStats,
     PlottableCoverage,
     PlottableDiversity,
     PlottableDriftMVDC,
     PlottableSufficiency,
+    PlottableType,
 )
 
 
@@ -28,7 +29,7 @@ class PlottingBackend(Protocol):
         self,
         output: PlottableCoverage,
         *,
-        images: Indexable | None = None,
+        dataset: Dataset | None = None,
         top_k: int = 6,
     ) -> Any: ...
 
@@ -80,9 +81,19 @@ class PlottingBackend(Protocol):
     ) -> Any: ...
 
     @overload
-    def plot(self, output: Plottable, **kwargs: Any) -> Any: ...
+    def plot(
+        self,
+        output: Dataset,
+        *,
+        indices: Sequence[int],
+        images_per_row: int = 3,
+        figsize: tuple[int, int] = (10, 10),
+    ) -> Any: ...
 
-    def plot(self, output: Plottable, **kwargs: Any) -> Any:
+    @overload
+    def plot(self, output: PlottableType, **kwargs: Any) -> Any: ...
+
+    def plot(self, output: PlottableType, **kwargs: Any) -> Any:
         """
         Plot output using this backend.
 
@@ -101,73 +112,14 @@ class PlottingBackend(Protocol):
         ...
 
 
-class BasePlottingBackend(ABC):
+class BasePlottingBackend(PlottingBackend, ABC):
     """Abstract base class for plotting backends with common routing logic.
 
     This class provides the routing logic based on plot_type() and delegates
     to abstract methods that subclasses must implement.
     """
 
-    @overload
-    def plot(
-        self,
-        output: PlottableCoverage,
-        *,
-        images: Indexable | None = None,
-        top_k: int = 6,
-    ) -> Any: ...
-
-    @overload
-    def plot(
-        self,
-        output: PlottableBalance,
-        *,
-        row_labels: Sequence[Any] | NDArray[Any] | None = None,
-        col_labels: Sequence[Any] | NDArray[Any] | None = None,
-        plot_classwise: bool = False,
-    ) -> Any: ...
-
-    @overload
-    def plot(
-        self,
-        output: PlottableDiversity,
-        *,
-        row_labels: Sequence[Any] | NDArray[Any] | None = None,
-        col_labels: Sequence[Any] | NDArray[Any] | None = None,
-        plot_classwise: bool = False,
-    ) -> Any: ...
-
-    @overload
-    def plot(
-        self,
-        output: PlottableSufficiency,
-        *,
-        class_names: Sequence[str] | None = None,
-        show_error_bars: bool = True,
-        show_asymptote: bool = True,
-        reference_outputs: Sequence[PlottableSufficiency] | PlottableSufficiency | None = None,
-    ) -> Any: ...
-
-    @overload
-    def plot(
-        self,
-        output: PlottableBaseStats,
-        *,
-        log: bool = True,
-        channel_limit: int | None = None,
-        channel_index: int | Iterable[int] | None = None,
-    ) -> Any: ...
-
-    @overload
-    def plot(
-        self,
-        output: PlottableDriftMVDC,
-    ) -> Any: ...
-
-    @overload
-    def plot(self, output: Plottable, **kwargs: Any) -> Any: ...
-
-    def plot(self, output: Plottable, **kwargs: Any) -> Any:
+    def plot(self, output: PlottableType, **kwargs: Any) -> Any:
         """
         Route to appropriate plot method based on output plot_type.
 
@@ -188,6 +140,9 @@ class BasePlottingBackend(ABC):
         NotImplementedError
             If plotting not implemented for output type
         """
+        if isinstance(output, Dataset):
+            return self._plot_image_grid(cast(Dataset, output), **kwargs)
+
         plot_type = output.plot_type()
 
         if plot_type == "coverage":
@@ -266,4 +221,15 @@ class BasePlottingBackend(ABC):
         output: PlottableDriftMVDC,
     ) -> Any:
         """Plot drift MVDC output."""
+        ...
+
+    @abstractmethod
+    def _plot_image_grid(
+        self,
+        dataset: Dataset,
+        indices: Sequence[int],
+        images_per_row: int,
+        figsize: tuple[int, int],
+    ) -> Any:
+        """Plot image grid - to be implemented by each backend."""
         ...

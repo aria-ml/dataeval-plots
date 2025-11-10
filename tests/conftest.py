@@ -123,6 +123,31 @@ class MockPlottableDriftMVDC:
         return MockExecutionMetadata(arguments={})
 
 
+@dataclass
+class MockDataset:
+    """Mock MAITE-compatible dataset for testing."""
+
+    images: list[NDArray[np.uint8]]
+    dataset_id: str = "mock_dataset"
+    index2label: dict[int, str] | None = None
+
+    def __getitem__(self, index: int) -> NDArray[np.uint8]:
+        """Get image at index."""
+        return (self.images[index], np.array([]), {"id": index})
+
+    def __len__(self) -> int:
+        """Get dataset length."""
+        return len(self.images)
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        """Get dataset metadata."""
+        result: dict[str, Any] = {"id": self.dataset_id}
+        if self.index2label is not None:
+            result["index2label"] = self.index2label
+        return result
+
+
 # Fixtures for common mock data
 
 
@@ -286,3 +311,17 @@ def mock_drift_mvdc() -> MockPlottableDriftMVDC:
     df = pd.DataFrame(data, columns=columns)
 
     return MockPlottableDriftMVDC(_df=df)
+
+
+@pytest.fixture
+def mock_dataset() -> MockDataset:
+    """Create mock dataset with sample images."""
+    # Create some random RGB images (channels-first format: C, H, W)
+    np.random.seed(42)
+    images = [np.random.randint(0, 256, (3, 32, 32), dtype=np.uint8) for _ in range(9)]
+
+    return MockDataset(
+        images=images,
+        dataset_id="test_dataset",
+        index2label={0: "cat", 1: "dog", 2: "bird"},
+    )

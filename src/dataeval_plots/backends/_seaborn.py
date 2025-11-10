@@ -17,6 +17,7 @@ from dataeval_plots.backends._shared import (
     prepare_drift_data,
 )
 from dataeval_plots.protocols import (
+    Dataset,
     Indexable,
     PlottableBalance,
     PlottableBaseStats,
@@ -486,4 +487,59 @@ class SeabornBackend(BasePlottingBackend):
             sns.despine(ax=ax)
 
         fig.tight_layout()
+        return fig
+
+    def _plot_image_grid(
+        self,
+        dataset: Dataset,
+        indices: Sequence[int],
+        images_per_row: int = 3,
+        figsize: tuple[int, int] = (10, 10),
+    ) -> Figure:
+        """
+        Plot a grid of images from a dataset with Seaborn styling.
+
+        Parameters
+        ----------
+        dataset : Dataset
+            MAITE-compatible dataset containing images
+        indices : Sequence[int]
+            Indices of images to plot from the dataset
+        images_per_row : int, default 3
+            Number of images to display per row
+        figsize : tuple[int, int], default (10, 10)
+            Figure size in inches (width, height)
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import seaborn as sns
+
+        # Set seaborn style for consistent appearance
+        sns.set_style("whitegrid")
+
+        num_images = len(indices)
+        num_rows = (num_images + images_per_row - 1) // images_per_row
+
+        fig, axes = plt.subplots(num_rows, images_per_row, figsize=figsize)
+
+        # Flatten axes array for easier iteration
+        axes_flat = np.asarray(axes).flatten()
+
+        for i, ax in enumerate(axes_flat):
+            if i >= num_images:
+                ax.set_visible(False)
+                continue
+
+            # Get image from dataset and convert to HWC format
+            image = dataset[indices[i]][0]
+            image_hwc = image_to_hwc(image)
+
+            ax.imshow(image_hwc)
+            ax.axis("off")
+
+        plt.tight_layout()
         return fig

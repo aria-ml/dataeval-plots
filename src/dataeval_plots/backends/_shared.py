@@ -34,7 +34,17 @@ __all__ = [
 ]
 
 # Constants
-CHANNELWISE_METRICS = ["mean", "std", "var", "skew", "zeros", "brightness", "contrast", "darkness", "entropy"]
+CHANNELWISE_METRICS = [
+    "mean",
+    "std",
+    "var",
+    "skew",
+    "zeros",
+    "brightness",
+    "contrast",
+    "darkness",
+    "entropy",
+]
 
 
 def f_out(n_i: NDArray[Any], x: NDArray[Any]) -> NDArray[Any]:
@@ -122,7 +132,14 @@ def prepare_balance_data(
     row_labels: Sequence[Any] | NDArray[Any] | None = None,
     col_labels: Sequence[Any] | NDArray[Any] | None = None,
     plot_classwise: bool = False,
-) -> tuple[NDArray[Any], NDArray[Any] | Sequence[Any], NDArray[Any] | Sequence[Any], str, str, str]:
+) -> tuple[
+    NDArray[Any],
+    NDArray[Any] | Sequence[Any],
+    NDArray[Any] | Sequence[Any],
+    str,
+    str,
+    str,
+]:
     """
     Prepare balance data for plotting across all backends.
 
@@ -182,7 +199,15 @@ def prepare_diversity_data(
     row_labels: Sequence[Any] | NDArray[Any] | None = None,
     col_labels: Sequence[Any] | NDArray[Any] | None = None,
     plot_classwise: bool = False,
-) -> tuple[NDArray[Any], NDArray[Any] | Sequence[Any], NDArray[Any] | Sequence[Any], str, str, str, str]:
+) -> tuple[
+    NDArray[Any],
+    NDArray[Any] | Sequence[Any],
+    NDArray[Any] | Sequence[Any],
+    str,
+    str,
+    str,
+    str,
+]:
     """
     Prepare diversity data for plotting across all backends.
 
@@ -306,8 +331,12 @@ def prepare_coverage_images(
     rows = int(np.ceil(num_images / 3))
     cols = min(3, num_images)
 
+    selected_images = []
+
     # Get selected images
-    selected_images = list(images[:num_images])
+    for i in range(num_images):
+        datum = images[i]
+        selected_images.append(datum[0] if isinstance(datum, tuple) else datum)
 
     return selected_images, num_images, rows, cols
 

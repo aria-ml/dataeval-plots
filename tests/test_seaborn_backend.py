@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from conftest import (
+    MockDataset,
     MockPlottableBalance,
     MockPlottableBaseStats,
     MockPlottableCoverage,
@@ -230,3 +231,40 @@ class TestSeabornBackend:
 
         assert isinstance(result, Figure)
         assert len(result.axes) > 0
+
+    def test_plot_image_grid(
+        self,
+        backend: SeabornBackend,
+        mock_dataset: MockDataset,
+    ) -> None:
+        """Test plotting image grid."""
+        indices = [0, 1, 2, 3, 4, 5]
+        result = backend.plot(mock_dataset, indices=indices)
+
+        assert isinstance(result, Figure)
+        assert len(result.axes) == 6  # 2 rows x 3 columns
+
+    def test_plot_image_grid_custom_layout(
+        self,
+        backend: SeabornBackend,
+        mock_dataset: MockDataset,
+    ) -> None:
+        """Test plotting image grid with custom layout."""
+        indices = [0, 1, 2, 3]
+        result = backend.plot(mock_dataset, indices=indices, images_per_row=2, figsize=(8, 8))
+
+        assert isinstance(result, Figure)
+        assert len(result.axes) == 4  # 2 rows x 2 columns
+
+    def test_plot_image_grid_single_image(
+        self,
+        backend: SeabornBackend,
+        mock_dataset: MockDataset,
+    ) -> None:
+        """Test plotting image grid with single image."""
+        indices = [0]
+        result = backend.plot(mock_dataset, indices=indices, images_per_row=3)
+
+        assert isinstance(result, Figure)
+        # With 1 image and 3 images_per_row, we get 1 row x 3 columns = 3 axes
+        assert len(result.axes) == 3
