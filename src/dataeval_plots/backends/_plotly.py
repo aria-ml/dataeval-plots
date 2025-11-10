@@ -457,7 +457,7 @@ class PlotlyBackend(BasePlottingBackend):
 
         Parameters
         ----------
-        output : PlottableBaseStats
+        output : PlottableStats
             The stats output object to plot
         figsize : tuple[int, int] or None, default None
             Figure size in pixels (width, height). If None, defaults to 300 * cols x 300 * rows.

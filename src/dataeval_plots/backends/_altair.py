@@ -449,7 +449,7 @@ class AltairBackend(BasePlottingBackend):
 
         Parameters
         ----------
-        output : PlottableBaseStats
+        output : PlottableStats
             The stats output object to plot
         figsize : tuple[int, int] | None, default None
             Figure size in inches (width, height) - applied to overall grid size

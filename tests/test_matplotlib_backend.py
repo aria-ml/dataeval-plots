@@ -7,9 +7,9 @@ import pytest
 from conftest import (
     MockDataset,
     MockPlottableBalance,
-    MockPlottableBaseStats,
     MockPlottableDiversity,
     MockPlottableDriftMVDC,
+    MockPlottableStats,
     MockPlottableSufficiency,
 )
 from matplotlib.figure import Figure
@@ -156,7 +156,7 @@ class TestMatplotlibBackend:
     def test_plot_stats_single_channel(
         self,
         backend: MatplotlibBackend,
-        mock_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with single channel."""
         result = backend.plot(mock_stats_single_channel)
@@ -167,7 +167,7 @@ class TestMatplotlibBackend:
     def test_plot_stats_multi_channel(
         self,
         backend: MatplotlibBackend,
-        mock_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with multiple channels."""
         result = backend.plot(mock_stats_multi_channel)
@@ -178,7 +178,7 @@ class TestMatplotlibBackend:
     def test_plot_stats_with_channel_limit(
         self,
         backend: MatplotlibBackend,
-        mock_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with channel limit."""
         result = backend.plot(mock_stats_multi_channel, channel_limit=2)
@@ -188,7 +188,7 @@ class TestMatplotlibBackend:
     def test_plot_stats_log_scale(
         self,
         backend: MatplotlibBackend,
-        mock_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with log scale."""
         result = backend.plot(mock_stats_single_channel, log=True)
@@ -200,7 +200,7 @@ class TestMatplotlibBackend:
         backend: MatplotlibBackend,
     ) -> None:
         """Test plotting base stats with no factors returns empty figure."""
-        mock_empty = MockPlottableBaseStats(
+        mock_empty = MockPlottableStats(
             _factors={},
             _n_channels=1,
             _channel_mask=None,

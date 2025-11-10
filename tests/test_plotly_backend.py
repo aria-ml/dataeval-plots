@@ -7,9 +7,9 @@ import pytest
 from conftest import (
     MockDataset,
     MockPlottableBalance,
-    MockPlottableBaseStats,
     MockPlottableDiversity,
     MockPlottableDriftMVDC,
+    MockPlottableStats,
     MockPlottableSufficiency,
 )
 
@@ -153,7 +153,7 @@ class TestPlotlyBackend:
     def test_plot_stats_single_channel(
         self,
         backend: PlotlyBackend,
-        mock_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with single channel."""
         result = backend.plot(mock_stats_single_channel)
@@ -164,7 +164,7 @@ class TestPlotlyBackend:
     def test_plot_stats_multi_channel(
         self,
         backend: PlotlyBackend,
-        mock_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with multiple channels."""
         result = backend.plot(mock_stats_multi_channel)
@@ -175,7 +175,7 @@ class TestPlotlyBackend:
     def test_plot_stats_with_channel_limit(
         self,
         backend: PlotlyBackend,
-        mock_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with channel limit."""
         result = backend.plot(mock_stats_multi_channel, channel_limit=2)
@@ -185,7 +185,7 @@ class TestPlotlyBackend:
     def test_plot_stats_log_scale(
         self,
         backend: PlotlyBackend,
-        mock_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with log scale."""
         result = backend.plot(mock_stats_single_channel, log=True)
@@ -197,7 +197,7 @@ class TestPlotlyBackend:
         backend: PlotlyBackend,
     ) -> None:
         """Test plotting base stats with no factors returns empty figure."""
-        mock_empty = MockPlottableBaseStats(
+        mock_empty = MockPlottableStats(
             _factors={},
             _n_channels=1,
             _channel_mask=None,

@@ -70,7 +70,7 @@ class MockPlottableSufficiency:
 
 
 @dataclass
-class MockPlottableBaseStats:
+class MockPlottableStats:
     """Mock base stats output for testing."""
 
     _factors: dict[str, NDArray[np.float64]]
@@ -230,9 +230,9 @@ def mock_sufficiency_multi_class() -> MockPlottableSufficiency:
 
 
 @pytest.fixture
-def mock_stats_single_channel() -> MockPlottableBaseStats:
+def mock_stats_single_channel() -> MockPlottableStats:
     """Create mock base stats output with single channel."""
-    return MockPlottableBaseStats(
+    return MockPlottableStats(
         _factors={
             "factor_0": np.random.rand(100),
             "factor_1": np.random.rand(100),
@@ -244,13 +244,13 @@ def mock_stats_single_channel() -> MockPlottableBaseStats:
 
 
 @pytest.fixture
-def mock_stats_multi_channel() -> MockPlottableBaseStats:
+def mock_stats_multi_channel() -> MockPlottableStats:
     """Create mock base stats output with multiple channels."""
     n_samples = 100
     n_channels = 3
 
     # Use channelwise metric names that are recognized by channel_histogram_plot
-    return MockPlottableBaseStats(
+    return MockPlottableStats(
         _factors={
             "mean": np.random.rand(n_samples, n_channels),
             "std": np.random.rand(n_samples, n_channels),

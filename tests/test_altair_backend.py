@@ -7,9 +7,9 @@ import pytest
 from conftest import (
     MockDataset,
     MockPlottableBalance,
-    MockPlottableBaseStats,
     MockPlottableDiversity,
     MockPlottableDriftMVDC,
+    MockPlottableStats,
     MockPlottableSufficiency,
 )
 
@@ -151,7 +151,7 @@ class TestAltairBackend:
     def test_plot_stats_single_channel(
         self,
         backend: AltairBackend,
-        mock_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with single channel."""
         result = backend.plot(mock_stats_single_channel)
@@ -161,7 +161,7 @@ class TestAltairBackend:
     def test_plot_stats_multi_channel(
         self,
         backend: AltairBackend,
-        mock_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with multiple channels."""
         result = backend.plot(mock_stats_multi_channel)
@@ -171,7 +171,7 @@ class TestAltairBackend:
     def test_plot_stats_with_channel_limit(
         self,
         backend: AltairBackend,
-        mock_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with channel limit."""
         result = backend.plot(mock_stats_multi_channel, channel_limit=2)
@@ -181,7 +181,7 @@ class TestAltairBackend:
     def test_plot_stats_log_scale(
         self,
         backend: AltairBackend,
-        mock_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableStats,
     ) -> None:
         """Test plotting base stats with log scale."""
         result = backend.plot(mock_stats_single_channel, log=True)
@@ -193,7 +193,7 @@ class TestAltairBackend:
         backend: AltairBackend,
     ) -> None:
         """Test plotting base stats with no factors returns empty chart."""
-        mock_empty = MockPlottableBaseStats(
+        mock_empty = MockPlottableStats(
             _factors={},
             _n_channels=1,
             _channel_mask=None,

@@ -10,7 +10,7 @@ The protocol hierarchy:
   - PlottableBalance
   - PlottableDiversity
   - PlottableSufficiency
-  - PlottableBaseStats
+  - PlottableStats
   - PlottableDriftMVDC
 """
 

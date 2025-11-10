@@ -637,7 +637,7 @@ class MatplotlibBackend(BasePlottingBackend):
 
         Parameters
         ----------
-        output : PlottableBaseStats
+        output : PlottableStats
             The stats output object to plot
         log : bool, default True
             If True, plots the histograms on a logarithmic scale.
