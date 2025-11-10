@@ -19,9 +19,19 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import (
+    Any,
+    Literal,
+    NotRequired,
+    Protocol,
+    Required,
+    TypedDict,
+    runtime_checkable,
+)
 
+import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import ReadOnly
 
 
 class ExecutionMetadata(Protocol):
@@ -64,9 +74,55 @@ class ExecutionMetadata(Protocol):
 class Indexable(Protocol):
     """Protocol for indexable collection."""
 
-    def __iter__(self) -> Iterable[Any]: ...
     def __len__(self) -> int: ...
     def __getitem__(self, index: Any) -> Any: ...
+
+
+class DatasetMetadata(TypedDict, total=False):
+    """Metadata for MAITE datasets.
+
+    Attributes
+    ----------
+    id : int or str
+        Dataset identifier (read-only)
+    index2label : dict[int, str], optional
+        Mapping from class indices to class labels (read-only)
+    """
+
+    id: Required[ReadOnly[str]]
+    index2label: NotRequired[ReadOnly[dict[int, str]]]
+
+
+@runtime_checkable
+class Dataset(Protocol):
+    """Protocol for MAITE-compatible datasets.
+
+    This protocol defines the interface for datasets following the MAITE
+    (Modular AI Trustworthy Engineering) specification. Datasets implementing
+    this protocol can be used for image grid plotting and other visualization tasks.
+
+    Type Parameters
+    ----------------
+    _T_co : covariant
+        The type of items returned by __getitem__
+
+    Methods
+    -------
+    __getitem__(index: int) -> _T_co
+        Retrieve an item from the dataset by integer index
+    __len__() -> int
+        Return the number of items in the dataset
+
+    Properties
+    ----------
+    metadata : DatasetMetadata
+        Dataset metadata including id and optional index2label mapping
+    """
+
+    def __getitem__(self, index: int, /) -> Any: ...
+    def __len__(self) -> int: ...
+    @property
+    def metadata(self) -> DatasetMetadata: ...
 
 
 @runtime_checkable
@@ -109,7 +165,8 @@ class PlottableCoverage(Plottable, Protocol):
     - plot_type() -> 'coverage'
     """
 
-    uncovered_indices: NDArray[Any]
+    @property
+    def uncovered_indices(self) -> NDArray[np.integer[Any]]: ...
 
     def plot_type(self) -> Literal["coverage"]:
         """Return 'coverage' as the plot type."""
@@ -129,11 +186,16 @@ class PlottableBalance(Plottable, Protocol):
     - plot_type() -> 'balance'
     """
 
-    class_names: Sequence[str]
-    factor_names: Sequence[str]
-    classwise: NDArray[Any]
-    balance: NDArray[Any]
-    factors: NDArray[Any]
+    @property
+    def class_names(self) -> Sequence[str]: ...
+    @property
+    def factor_names(self) -> Sequence[str]: ...
+    @property
+    def classwise(self) -> NDArray[Any]: ...
+    @property
+    def balance(self) -> NDArray[Any]: ...
+    @property
+    def factors(self) -> NDArray[Any]: ...
 
     def plot_type(self) -> Literal["balance"]:
         """Return 'balance' as the plot type."""
@@ -152,10 +214,14 @@ class PlottableDiversity(Plottable, Protocol):
     - plot_type() -> 'diversity'
     """
 
-    class_names: Sequence[str]
-    factor_names: Sequence[str]
-    classwise: NDArray[Any]
-    diversity_index: NDArray[Any]
+    @property
+    def class_names(self) -> Sequence[str]: ...
+    @property
+    def factor_names(self) -> Sequence[str]: ...
+    @property
+    def classwise(self) -> NDArray[Any]: ...
+    @property
+    def diversity_index(self) -> NDArray[Any]: ...
 
     def plot_type(self) -> Literal["diversity"]:
         """Return 'diversity' as the plot type."""
@@ -174,10 +240,14 @@ class PlottableSufficiency(Plottable, Protocol):
     - plot_type() -> 'sufficiency'
     """
 
-    steps: NDArray[Any]
-    averaged_measures: Mapping[str, NDArray[Any]]
-    measures: Mapping[str, NDArray[Any]]
-    params: Mapping[str, NDArray[Any]]
+    @property
+    def steps(self) -> NDArray[Any]: ...
+    @property
+    def averaged_measures(self) -> Mapping[str, NDArray[Any]]: ...
+    @property
+    def measures(self) -> Mapping[str, NDArray[Any]]: ...
+    @property
+    def params(self) -> Mapping[str, NDArray[Any]]: ...
 
     def plot_type(self) -> Literal["sufficiency"]:
         """Return 'sufficiency' as the plot type."""
@@ -262,7 +332,8 @@ class PlottableDriftMVDC(Plottable, Protocol):
 
 # Type alias for all plottable types
 PlottableType = (
-    PlottableCoverage
+    Dataset
+    | PlottableCoverage
     | PlottableBalance
     | PlottableDiversity
     | PlottableSufficiency
