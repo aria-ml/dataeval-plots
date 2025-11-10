@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, cast, overload
+
+from numpy.typing import NDArray
 
 from dataeval_plots.protocols import (
     Indexable,
@@ -20,6 +22,65 @@ from dataeval_plots.protocols import (
 
 class PlottingBackend(Protocol):
     """Protocol that all plotting backends must implement."""
+
+    @overload
+    def plot(
+        self,
+        output: PlottableCoverage,
+        *,
+        images: Indexable | None = None,
+        top_k: int = 6,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableBalance,
+        *,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
+        plot_classwise: bool = False,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableDiversity,
+        *,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
+        plot_classwise: bool = False,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableSufficiency,
+        *,
+        class_names: Sequence[str] | None = None,
+        show_error_bars: bool = True,
+        show_asymptote: bool = True,
+        reference_outputs: Sequence[PlottableSufficiency] | PlottableSufficiency | None = None,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableBaseStats,
+        *,
+        log: bool = True,
+        channel_limit: int | None = None,
+        channel_index: int | Iterable[int] | None = None,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableDriftMVDC,
+    ) -> Any: ...
+
+    @overload
+    def plot(self, output: Plottable, **kwargs: Any) -> Any: ...
 
     def plot(self, output: Plottable, **kwargs: Any) -> Any:
         """
@@ -46,6 +107,65 @@ class BasePlottingBackend(ABC):
     This class provides the routing logic based on plot_type() and delegates
     to abstract methods that subclasses must implement.
     """
+
+    @overload
+    def plot(
+        self,
+        output: PlottableCoverage,
+        *,
+        images: Indexable | None = None,
+        top_k: int = 6,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableBalance,
+        *,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
+        plot_classwise: bool = False,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableDiversity,
+        *,
+        row_labels: Sequence[Any] | NDArray[Any] | None = None,
+        col_labels: Sequence[Any] | NDArray[Any] | None = None,
+        plot_classwise: bool = False,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableSufficiency,
+        *,
+        class_names: Sequence[str] | None = None,
+        show_error_bars: bool = True,
+        show_asymptote: bool = True,
+        reference_outputs: Sequence[PlottableSufficiency] | PlottableSufficiency | None = None,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableBaseStats,
+        *,
+        log: bool = True,
+        channel_limit: int | None = None,
+        channel_index: int | Iterable[int] | None = None,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableDriftMVDC,
+    ) -> Any: ...
+
+    @overload
+    def plot(self, output: Plottable, **kwargs: Any) -> Any: ...
 
     def plot(self, output: Plottable, **kwargs: Any) -> Any:
         """

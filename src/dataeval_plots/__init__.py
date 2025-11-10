@@ -2,12 +2,101 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterable, Sequence
+from typing import Any, overload
+
+from numpy.typing import NDArray
 
 from dataeval_plots._registry import get_available_backends, get_backend, register_backend, set_default_backend
-from dataeval_plots.protocols import Plottable
+from dataeval_plots.protocols import (
+    Indexable,
+    Plottable,
+    PlottableBalance,
+    PlottableBaseStats,
+    PlottableCoverage,
+    PlottableDiversity,
+    PlottableDriftMVDC,
+    PlottableSufficiency,
+)
 
 __all__ = ["plot", "register_backend", "set_default_backend", "get_backend", "get_available_backends"]
+
+
+@overload
+def plot(
+    output: PlottableCoverage,
+    /,
+    backend: str | None = None,
+    *,
+    images: Indexable | None = None,
+    top_k: int = 6,
+) -> Any: ...
+
+
+@overload
+def plot(
+    output: PlottableBalance,
+    /,
+    backend: str | None = None,
+    *,
+    row_labels: Sequence[Any] | NDArray[Any] | None = None,
+    col_labels: Sequence[Any] | NDArray[Any] | None = None,
+    plot_classwise: bool = False,
+) -> Any: ...
+
+
+@overload
+def plot(
+    output: PlottableDiversity,
+    /,
+    backend: str | None = None,
+    *,
+    row_labels: Sequence[Any] | NDArray[Any] | None = None,
+    col_labels: Sequence[Any] | NDArray[Any] | None = None,
+    plot_classwise: bool = False,
+) -> Any: ...
+
+
+@overload
+def plot(
+    output: PlottableSufficiency,
+    /,
+    backend: str | None = None,
+    *,
+    class_names: Sequence[str] | None = None,
+    show_error_bars: bool = True,
+    show_asymptote: bool = True,
+    reference_outputs: Sequence[PlottableSufficiency] | PlottableSufficiency | None = None,
+) -> Any: ...
+
+
+@overload
+def plot(
+    output: PlottableBaseStats,
+    /,
+    backend: str | None = None,
+    *,
+    log: bool = True,
+    channel_limit: int | None = None,
+    channel_index: int | Iterable[int] | None = None,
+) -> Any: ...
+
+
+@overload
+def plot(
+    output: PlottableDriftMVDC,
+    /,
+    backend: str | None = None,
+) -> Any: ...
+
+
+@overload
+def plot(
+    output: Plottable,
+    /,
+    backend: str | None = None,
+    **kwargs: Any,
+) -> Any: ...
 
 
 def plot(output: Plottable, /, backend: str | None = None, **kwargs: Any) -> Any:

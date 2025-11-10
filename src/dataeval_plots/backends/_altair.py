@@ -228,7 +228,7 @@ class AltairBackend(BasePlottingBackend):
                     color=alt.Color(
                         "value:Q",
                         scale=alt.Scale(scheme="viridis", domain=[0, 1]),
-                        title=f"Normalized {method_name} Index",
+                        title=["Normalized", method_name, "Index"],
                     ),
                     tooltip=["row:N", "col:N", alt.Tooltip("value:Q", format=".2f")],
                 )

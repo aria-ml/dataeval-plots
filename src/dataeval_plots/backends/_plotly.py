@@ -247,7 +247,7 @@ class PlotlyBackend(BasePlottingBackend):
                     text=text,
                     texttemplate="%{text}",
                     textfont={"size": 10},
-                    colorbar={"title": f"Normalized {method_name} Index"},
+                    colorbar={"title": {"text": f"Normalized {method_name} Index", "side": "right"}},
                     hovertemplate="Row: %{y}<br>Col: %{x}<br>Value: %{z:.2f}<extra></extra>",
                 )
             )
