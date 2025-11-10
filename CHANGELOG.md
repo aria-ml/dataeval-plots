@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.4] - 2025-11-10
+
+- [impr] Refactor duplicate code and improve bounding boxes
+- [housekeeping] Rename PlottableBaseStats
+- [feat] Add bounding box rendering
+- [fix] Switch to typing_extensions for Required/NotRequired
+- [fix] Remove mock_coverage test
+- [depr] Remove Coverage plotting and enhance image plotting
+- [feat] Add image grid plotting functionality for datasets
+- [fix] Update protocols for better compatibility
+- [misc] Add plot overloads for parameter hinting and minor visual tweaks
+- [misc] Refactor image_to_hwc helper
+
 ## [0.0.3] - 2025-11-08
 
 - [impr] Refactor shared code to shared module
