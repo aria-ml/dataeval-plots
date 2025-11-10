@@ -14,10 +14,12 @@ from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
     calculate_projection,
     calculate_subplot_grid,
+    format_label_from_target,
     image_to_hwc,
+    merge_metadata,
     normalize_reference_outputs,
+    parse_dataset_item,
     prepare_balance_data,
-    prepare_coverage_images,
     prepare_diversity_data,
     prepare_drift_data,
     project_steps,
@@ -25,12 +27,10 @@ from dataeval_plots.backends._shared import (
 )
 from dataeval_plots.protocols import (
     Dataset,
-    Indexable,
     PlottableBalance,
-    PlottableBaseStats,
-    PlottableCoverage,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableStats,
     PlottableSufficiency,
 )
 
@@ -50,6 +50,7 @@ class MatplotlibBackend(BasePlottingBackend):
         xlabel: str = "",
         ylabel: str = "",
         cbarlabel: str = "",
+        figsize: tuple[int, int] | None = None,
     ) -> Figure:
         """
         Plots a formatted heatmap.
@@ -81,7 +82,9 @@ class MatplotlibBackend(BasePlottingBackend):
         rows: list[str] = [str(n) for n in np.asarray(row_labels)]
         cols: list[str] = [str(n) for n in np.asarray(col_labels)]
 
-        fig, ax = plt.subplots(figsize=(10, 10))
+        if figsize is None:
+            figsize = (10, 10)
+        fig, ax = plt.subplots(figsize=figsize)
 
         # Plot the heatmap
         im = ax.imshow(np_data, vmin=0, vmax=1.0)
@@ -165,6 +168,7 @@ class MatplotlibBackend(BasePlottingBackend):
         log: bool = True,
         xlabel: str = "values",
         ylabel: str = "counts",
+        figsize: tuple[int, int] | None = None,
     ) -> Figure:
         """
         Plots a formatted histogram.
@@ -189,7 +193,9 @@ class MatplotlibBackend(BasePlottingBackend):
 
         num_metrics = len(data_dict)
         rows, cols = calculate_subplot_grid(num_metrics)
-        fig, axs = plt.subplots(rows, 3, figsize=(cols * 3 + 1, rows * 3))
+        if figsize is None:
+            figsize = (cols * 3 + 1, rows * 3)
+        fig, axs = plt.subplots(rows, 3, figsize=figsize)
         axs_flat = np.asarray(axs).flatten()
         for ax, metric in zip(
             axs_flat,
@@ -218,6 +224,7 @@ class MatplotlibBackend(BasePlottingBackend):
         ch_mask: Sequence[bool] | None = None,
         xlabel: str = "values",
         ylabel: str = "counts",
+        figsize: tuple[int, int] | None = None,
     ) -> Figure:
         """
         Plots a formatted channel-wise histogram.
@@ -250,7 +257,9 @@ class MatplotlibBackend(BasePlottingBackend):
 
         num_metrics = len(data_keys)
         rows, cols = calculate_subplot_grid(num_metrics)
-        fig, axs = plt.subplots(rows, 3, figsize=(cols * 3 + 1, rows * 3))
+        if figsize is None:
+            figsize = (cols * 3 + 1, rows * 3)
+        fig, axs = plt.subplots(rows, 3, figsize=figsize)
         axs_flat = np.asarray(axs).flatten()
         for ax, metric in zip(
             axs_flat,
@@ -282,52 +291,10 @@ class MatplotlibBackend(BasePlottingBackend):
         fig.tight_layout()
         return fig
 
-    def _plot_coverage(
-        self,
-        output: PlottableCoverage,
-        images: Indexable | None = None,  # Images | Dataset
-        top_k: int = 6,
-    ) -> Figure:
-        """
-        Plot the top k images together for visualization.
-
-        Parameters
-        ----------
-        output : PlottableCoverage
-            The coverage output object to plot
-        images : Images or Dataset
-            Original images (not embeddings) in (N, C, H, W) or (N, H, W) format
-        top_k : int, default 6
-            Number of images to plot (plotting assumes groups of 3)
-
-        Returns
-        -------
-        matplotlib.figure.Figure
-        """
-        import matplotlib.pyplot as plt
-        import numpy as np
-
-        # Use shared helper to prepare and validate images
-        selected_images, num_images, rows, cols = prepare_coverage_images(output, images, top_k)
-
-        fig, axs = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
-
-        # Flatten axes using numpy array explicitly for compatibility
-        axs_flat = np.asarray(axs).flatten()
-
-        for image, ax in zip(selected_images, axs_flat):
-            ax.imshow(image_to_hwc(image))
-            ax.axis("off")
-
-        for ax in axs_flat[num_images:]:
-            ax.axis("off")
-
-        fig.tight_layout()
-        return fig
-
     def _plot_balance(
         self,
         output: PlottableBalance,
+        figsize: tuple[int, int] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -364,11 +331,13 @@ class MatplotlibBackend(BasePlottingBackend):
             xlabel=xlabel,
             ylabel=ylabel,
             cbarlabel="Normalized Mutual Information",
+            figsize=figsize,
         )
 
     def _plot_diversity(
         self,
         output: PlottableDiversity,
+        figsize: tuple[int, int] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -406,10 +375,13 @@ class MatplotlibBackend(BasePlottingBackend):
                 xlabel=xlabel,
                 ylabel=ylabel,
                 cbarlabel=f"Normalized {method_name} Index",
+                figsize=figsize,
             )
         else:
             # Bar chart for diversity indices
-            fig, ax = plt.subplots(figsize=(8, 8))
+            if figsize is None:
+                figsize = (8, 8)
+            fig, ax = plt.subplots(figsize=figsize)
             ax.bar(row_labels, output.diversity_index)
             ax.set_xlabel(xlabel)
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
@@ -486,10 +458,11 @@ class MatplotlibBackend(BasePlottingBackend):
         show_asymptote: bool,
         plots: list[Figure],
         reference_outputs: Sequence[Any],
+        figsize: tuple[int, int] | None = None,
     ) -> None:
         from matplotlib import pyplot as plt
 
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=figsize)
         ax.set_ylabel(f"{name}")
         self._plot_measure(
             name,
@@ -533,13 +506,14 @@ class MatplotlibBackend(BasePlottingBackend):
         plots: list[Figure],
         reference_outputs: Sequence[Any],
         class_names: Sequence[str] | None = None,
+        figsize: tuple[int, int] | None = None,
     ) -> None:
         from matplotlib import pyplot as plt
 
         validate_class_names(averaged_measure, class_names)
         for i, values in enumerate(averaged_measure):
             # Create a plot for each class
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=figsize)
             class_name = str(i) if class_names is None else class_names[i]
             ax.set_ylabel(f"{name}")
             self._plot_measure(
@@ -578,6 +552,7 @@ class MatplotlibBackend(BasePlottingBackend):
     def _plot_sufficiency(
         self,
         output: PlottableSufficiency,
+        figsize: tuple[int, int] | None = None,
         class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
@@ -628,6 +603,7 @@ class MatplotlibBackend(BasePlottingBackend):
                     plots,
                     reference_outputs,
                     class_names,
+                    figsize,
                 )
             else:
                 self._plot_single_class(
@@ -641,12 +617,14 @@ class MatplotlibBackend(BasePlottingBackend):
                     show_asymptote,
                     plots,
                     reference_outputs,
+                    figsize,
                 )
         return plots
 
-    def _plot_base_stats(
+    def _plot_stats(
         self,
-        output: PlottableBaseStats,
+        output: PlottableStats,
+        figsize: tuple[int, int] | None = None,
         log: bool = True,
         channel_limit: int | None = None,
         channel_index: int | Iterable[int] | None = None,
@@ -676,12 +654,13 @@ class MatplotlibBackend(BasePlottingBackend):
         if not factors:
             return Figure()
         if max_channels == 1:
-            return self.histogram_plot(factors, log)
-        return self.channel_histogram_plot(factors, log, max_channels, ch_mask)
+            return self.histogram_plot(factors, log, figsize=figsize)
+        return self.channel_histogram_plot(factors, log, max_channels, ch_mask, figsize=figsize)
 
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
+        figsize: tuple[int, int] | None = None,
     ) -> Figure:
         """
         Render the roc_auc metric over the train/test data in relation to the threshold.
@@ -701,7 +680,7 @@ class MatplotlibBackend(BasePlottingBackend):
         # Use shared helper to prepare drift data
         resdf, trndf, tstdf, driftx, is_sufficient = prepare_drift_data(output)
 
-        fig, ax = plt.subplots(dpi=300)
+        fig, ax = plt.subplots(dpi=300, figsize=figsize)
         xticks = np.arange(resdf.shape[0])
 
         if is_sufficient and np.size(driftx) > 2:
@@ -731,7 +710,10 @@ class MatplotlibBackend(BasePlottingBackend):
         dataset: Dataset,
         indices: Sequence[int],
         images_per_row: int = 3,
-        figsize: tuple[int, int] = (10, 10),
+        figsize: tuple[int, int] | None = None,
+        show_labels: bool = False,
+        show_metadata: bool = False,
+        additional_metadata: Sequence[dict[str, Any]] | None = None,
     ) -> Figure:
         """
         Plot a grid of images from a dataset.
@@ -746,32 +728,77 @@ class MatplotlibBackend(BasePlottingBackend):
             Number of images to display per row
         figsize : tuple[int, int], default (10, 10)
             Figure size in inches (width, height)
+        show_labels : bool, default False
+            Whether to display labels extracted from targets
+        show_metadata : bool, default False
+            Whether to display metadata from the dataset items
+        additional_metadata : Sequence[dict[str, Any]] or None, default None
+            Additional metadata to display for each image (must match length of indices)
 
         Returns
         -------
         matplotlib.figure.Figure
+
+        Raises
+        ------
+        ValueError
+            If additional_metadata length doesn't match indices length
         """
         import matplotlib.pyplot as plt
+
+        # Validate additional_metadata length
+        if additional_metadata is not None and len(additional_metadata) != len(indices):
+            raise ValueError(
+                f"additional_metadata length ({len(additional_metadata)}) must match indices length ({len(indices)})"
+            )
 
         num_images = len(indices)
         num_rows = (num_images + images_per_row - 1) // images_per_row
 
+        if figsize is None:
+            figsize = (10, 10)
         fig, axes = plt.subplots(num_rows, images_per_row, figsize=figsize)
 
         # Flatten axes array for easier iteration
         axes_flat = np.asarray(axes).flatten()
+
+        # Get index2label mapping if available
+        index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
 
         for i, ax in enumerate(axes_flat):
             if i >= num_images:
                 ax.set_visible(False)
                 continue
 
-            # Get image from dataset and convert to HWC format
-            image = dataset[indices[i]][0]
-            image_hwc = image_to_hwc(image)
+            # Get dataset item and parse it
+            datum = dataset[indices[i]]
+            image, target, metadata = parse_dataset_item(datum)
 
+            # Merge with additional metadata if provided
+            if additional_metadata is not None:
+                metadata = merge_metadata(metadata, additional_metadata[i])
+
+            # Convert image to HWC format and display
+            image_hwc = image_to_hwc(image)
             ax.imshow(image_hwc)
             ax.axis("off")
+
+            # Build title from labels and metadata
+            title_parts = []
+
+            if show_labels and target is not None:
+                label_str = format_label_from_target(target, index2label)
+                if label_str:
+                    title_parts.append(label_str)
+
+            if show_metadata and metadata:
+                # Format metadata as key: value pairs
+                metadata_strs = [f"{k}: {v}" for k, v in metadata.items()]
+                title_parts.extend(metadata_strs)
+
+            # Set title if we have any parts
+            if title_parts:
+                ax.set_title("\n".join(title_parts), fontsize=8, pad=3)
 
         plt.tight_layout()
         return fig

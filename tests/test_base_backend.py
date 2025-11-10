@@ -8,24 +8,15 @@ from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.protocols import (
     Dataset,
     PlottableBalance,
-    PlottableBaseStats,
-    PlottableCoverage,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableStats,
     PlottableSufficiency,
 )
 
 
 class MockBackend(BasePlottingBackend):
     """Mock backend for testing base functionality."""
-
-    def _plot_coverage(
-        self,
-        output: PlottableCoverage,
-        images: Any = None,
-        max_display: int = 20,
-    ) -> None:
-        pass
 
     def _plot_balance(
         self,
@@ -53,9 +44,9 @@ class MockBackend(BasePlottingBackend):
     ) -> None:
         pass
 
-    def _plot_base_stats(
+    def _plot_stats(
         self,
-        output: PlottableBaseStats,
+        output: PlottableStats,
         log: bool = False,
         channel_limit: int | None = None,
         channel_index: int | list[int] | None = None,

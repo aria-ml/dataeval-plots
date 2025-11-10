@@ -12,11 +12,12 @@ from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
     calculate_projection,
     calculate_subplot_grid,
-    image_to_base64_png,
+    format_label_from_target,
     image_to_hwc,
+    merge_metadata,
     normalize_image_to_uint8,
+    parse_dataset_item,
     prepare_balance_data,
-    prepare_coverage_images,
     prepare_diversity_data,
     prepare_drift_data,
     project_steps,
@@ -24,12 +25,10 @@ from dataeval_plots.backends._shared import (
 )
 from dataeval_plots.protocols import (
     Dataset,
-    Indexable,
     PlottableBalance,
-    PlottableBaseStats,
-    PlottableCoverage,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableStats,
     PlottableSufficiency,
 )
 
@@ -37,83 +36,10 @@ from dataeval_plots.protocols import (
 class PlotlyBackend(BasePlottingBackend):
     """Plotly implementation of plotting backend with interactive visualizations."""
 
-    def _plot_coverage(
-        self,
-        output: PlottableCoverage,
-        images: Indexable | None = None,  # Images | Dataset
-        top_k: int = 6,
-    ) -> Any:  # go.Figure
-        """
-        Plot the top k images together for visualization.
-
-        Parameters
-        ----------
-        output : PlottableCoverage
-            The coverage output object to plot
-        images : Images or Dataset
-            Original images (not embeddings) in (N, C, H, W) or (N, H, W) format
-        top_k : int, default 6
-            Number of images to plot (plotting assumes groups of 3)
-
-        Returns
-        -------
-        plotly.graph_objects.Figure
-        """
-        from plotly.subplots import make_subplots
-
-        # Use shared helper to prepare and validate images
-        selected_images, num_images, rows, cols = prepare_coverage_images(output, images, top_k)
-
-        # Create subplots
-        fig = make_subplots(
-            rows=rows,
-            cols=cols,
-            subplot_titles=[f"Image {i}" for i in range(num_images)],
-        )
-
-        for idx, img in enumerate(selected_images):
-            img_np = image_to_hwc(img)
-
-            # Normalize and convert to base64 using shared helpers
-            img_np = normalize_image_to_uint8(img_np)
-            img_str = image_to_base64_png(img_np)
-
-            row = idx // 3 + 1
-            col = idx % 3 + 1
-
-            # Add image to subplot
-            fig.add_layout_image(
-                {
-                    "source": img_str,
-                    "xref": f"x{idx + 1}" if idx > 0 else "x",
-                    "yref": f"y{idx + 1}" if idx > 0 else "y",
-                    "x": 0,
-                    "y": 1,
-                    "sizex": 1,
-                    "sizey": 1,
-                    "sizing": "stretch",
-                    "layer": "below",
-                },
-                row=row,
-                col=col,
-            )
-
-            # Hide axes for this subplot
-            fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=row, col=col)
-            fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=row, col=col)
-
-        fig.update_layout(
-            title=f"Top {num_images} Uncovered Images",
-            showlegend=False,
-            height=300 * rows,
-            width=300 * cols,
-        )
-
-        return fig
-
     def _plot_balance(
         self,
         output: PlottableBalance,
+        figsize: tuple[int, int] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -125,6 +51,8 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableBalance
             The balance output object to plot
+        figsize : tuple[int, int] or None, default None
+            Figure size in pixels (width, height). If None, defaults to 600x600.
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
         col_labels : ArrayLike or None, default None
@@ -189,12 +117,21 @@ class PlotlyBackend(BasePlottingBackend):
             )
         )
 
+        # Set figure size
+        if figsize is not None:
+            width_inches, height_inches = figsize
+            width = int(width_inches * 100)
+            height = int(height_inches * 100)
+        else:
+            width = 600
+            height = 600
+
         fig.update_layout(
             title=title,
             xaxis_title=xlabel,
             yaxis_title=ylabel,
-            width=600,
-            height=600,
+            width=width,
+            height=height,
             xaxis={"tickangle": -45},
             yaxis={"autorange": "reversed"},  # Reverse y-axis to show first row at top
         )
@@ -204,6 +141,7 @@ class PlotlyBackend(BasePlottingBackend):
     def _plot_diversity(
         self,
         output: PlottableDiversity,
+        figsize: tuple[int, int] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -215,6 +153,8 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableDiversity
             The diversity output object to plot
+        figsize : tuple[int, int] or None, default None
+            Figure size in pixels (width, height). If None, defaults to 600x600 for heatmap or 700x500 for bar chart.
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
         col_labels : ArrayLike or None, default None
@@ -258,12 +198,21 @@ class PlotlyBackend(BasePlottingBackend):
                 )
             )
 
+            # Set figure size for heatmap
+            if figsize is not None:
+                width_inches, height_inches = figsize
+                width = int(width_inches * 100)
+                height = int(height_inches * 100)
+            else:
+                width = 600
+                height = 600
+
             fig.update_layout(
                 title=title,
                 xaxis_title=xlabel,
                 yaxis_title=ylabel,
-                width=600,
-                height=600,
+                width=width,
+                height=height,
                 xaxis={"tickangle": -45},
             )
         else:
@@ -283,12 +232,21 @@ class PlotlyBackend(BasePlottingBackend):
                 )
             )
 
+            # Set figure size for bar chart
+            if figsize is not None:
+                width_inches, height_inches = figsize
+                width = int(width_inches * 100)
+                height = int(height_inches * 100)
+            else:
+                width = 700
+                height = 500
+
             fig.update_layout(
                 title=title,
                 xaxis_title=xlabel,
                 yaxis_title=ylabel,
-                width=700,
-                height=500,
+                width=width,
+                height=height,
                 xaxis={"tickangle": -45},
             )
 
@@ -297,6 +255,7 @@ class PlotlyBackend(BasePlottingBackend):
     def _plot_sufficiency(
         self,
         output: PlottableSufficiency,
+        figsize: tuple[int, int] | None = None,
         class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
@@ -309,6 +268,8 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableSufficiency
             The sufficiency output object to plot
+        figsize : tuple[int, int] or None, default None
+            Figure size in pixels (width, height). If None, defaults to 700x500.
         class_names : Sequence[str] | None, default None
             List of class names
         show_error_bars : bool, default True
@@ -389,13 +350,22 @@ class PlotlyBackend(BasePlottingBackend):
                             )
                         )
 
+                    # Set figure size
+                    if figsize is not None:
+                        width_inches, height_inches = figsize
+                        width = int(width_inches * 100)
+                        height = int(height_inches * 100)
+                    else:
+                        width = 700
+                        height = 500
+
                     fig.update_layout(
                         title=f"{name} Sufficiency - Class {class_name}",
                         xaxis_title="Steps",
                         yaxis_title=name,
                         xaxis_type="log",
-                        width=700,
-                        height=500,
+                        width=width,
+                        height=height,
                         hovermode="closest",
                     )
 
@@ -449,13 +419,22 @@ class PlotlyBackend(BasePlottingBackend):
                         )
                     )
 
+                # Set figure size
+                if figsize is not None:
+                    width_inches, height_inches = figsize
+                    width = int(width_inches * 100)
+                    height = int(height_inches * 100)
+                else:
+                    width = 700
+                    height = 500
+
                 fig.update_layout(
                     title=f"{name} Sufficiency",
                     xaxis_title="Steps",
                     yaxis_title=name,
                     xaxis_type="log",
-                    width=700,
-                    height=500,
+                    width=width,
+                    height=height,
                     hovermode="closest",
                 )
 
@@ -463,9 +442,10 @@ class PlotlyBackend(BasePlottingBackend):
 
         return figures
 
-    def _plot_base_stats(
+    def _plot_stats(
         self,
-        output: PlottableBaseStats,
+        output: PlottableStats,
+        figsize: tuple[int, int] | None = None,
         log: bool = True,
         channel_limit: int | None = None,
         channel_index: int | Iterable[int] | None = None,
@@ -477,6 +457,8 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableBaseStats
             The stats output object to plot
+        figsize : tuple[int, int] or None, default None
+            Figure size in pixels (width, height). If None, defaults to 300 * cols x 300 * rows.
         log : bool, default True
             If True, plots the histograms on a logarithmic scale.
         channel_limit : int or None, default None
@@ -532,7 +514,16 @@ class PlotlyBackend(BasePlottingBackend):
                     col=col,
                 )
 
-            fig.update_layout(height=300 * rows, width=300 * cols, title="Base Statistics Histograms")
+            # Set figure size for single channel
+            if figsize is not None:
+                width_inches, height_inches = figsize
+                width = int(width_inches * 100)
+                height = int(height_inches * 100)
+            else:
+                width = 300 * cols
+                height = 300 * rows
+
+            fig.update_layout(height=height, width=width, title="Base Statistics Histograms")
 
         else:
             # Multi-channel histogram - use shared constant
@@ -577,9 +568,18 @@ class PlotlyBackend(BasePlottingBackend):
                     col=col,
                 )
 
+            # Set figure size for multi-channel
+            if figsize is not None:
+                width_inches, height_inches = figsize
+                width = int(width_inches * 100)
+                height = int(height_inches * 100)
+            else:
+                width = 300 * cols
+                height = 300 * rows
+
             fig.update_layout(
-                height=300 * rows,
-                width=300 * cols,
+                height=height,
+                width=width,
                 title="Base Statistics Histograms (Multi-Channel)",
                 barmode="overlay",
             )
@@ -589,6 +589,7 @@ class PlotlyBackend(BasePlottingBackend):
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
+        figsize: tuple[int, int] | None = None,
     ) -> Any:  # go.Figure
         """
         Render the roc_auc metric over the train/test data in relation to the threshold.
@@ -597,6 +598,8 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableDriftMVDC
             The drift MVDC output object to plot
+        figsize : tuple[int, int] or None, default None
+            Figure size in pixels (width, height). If None, defaults to 900x500.
 
         Returns
         -------
@@ -681,13 +684,22 @@ class PlotlyBackend(BasePlottingBackend):
                 )
             )
 
+        # Set figure size
+        if figsize is not None:
+            width_inches, height_inches = figsize
+            width = int(width_inches * 100)
+            height = int(height_inches * 100)
+        else:
+            width = 900
+            height = 500
+
         fig.update_layout(
             title="Domain Classifier, Drift Detection",
             xaxis_title="Chunk Index",
             yaxis_title="ROC AUC",
             yaxis={"range": [0, 1.1]},
-            width=900,
-            height=500,
+            width=width,
+            height=height,
             hovermode="closest",
         )
 
@@ -698,7 +710,10 @@ class PlotlyBackend(BasePlottingBackend):
         dataset: Dataset,
         indices: Sequence[int],
         images_per_row: int = 3,
-        figsize: tuple[int, int] = (10, 10),
+        figsize: tuple[int, int] | None = None,
+        show_labels: bool = False,
+        show_metadata: bool = False,
+        additional_metadata: Sequence[dict[str, Any]] | None = None,
     ) -> Any:
         """
         Plot a grid of images from a dataset using Plotly.
@@ -711,33 +726,87 @@ class PlotlyBackend(BasePlottingBackend):
             Indices of images to plot from the dataset
         images_per_row : int, default 3
             Number of images to display per row
-        figsize : tuple[int, int], default (10, 10)
-            Figure size in inches (width, height) - converted to pixels
+        figsize : tuple[int, int] or None, default None
+            Figure size in pixels (width, height). If None, defaults to 1000x1000.
+        show_labels : bool, default False
+            Whether to display labels extracted from targets
+        show_metadata : bool, default False
+            Whether to display metadata from the dataset items
+        additional_metadata : Sequence[dict[str, Any]] or None, default None
+            Additional metadata to display for each image (must match length of indices)
 
         Returns
         -------
         plotly.graph_objects.Figure
+
+        Raises
+        ------
+        ValueError
+            If additional_metadata length doesn't match indices length
         """
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
 
+        # Validate additional_metadata length
+        if additional_metadata is not None and len(additional_metadata) != len(indices):
+            raise ValueError(
+                f"additional_metadata length ({len(additional_metadata)}) must match indices length ({len(indices)})"
+            )
+
         num_images = len(indices)
         num_rows = (num_images + images_per_row - 1) // images_per_row
+
+        # Get index2label mapping if available
+        index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
+
+        # Build subplot titles
+        subplot_titles = []
+        for i, idx in enumerate(indices):
+            # Get dataset item and parse it
+            datum = dataset[idx]
+            image, target, metadata = parse_dataset_item(datum)
+
+            # Merge with additional metadata if provided
+            if additional_metadata is not None:
+                metadata = merge_metadata(metadata, additional_metadata[i])
+
+            # Build title from labels and metadata
+            title_parts = []
+
+            if show_labels and target is not None:
+                label_str = format_label_from_target(target, index2label)
+                if label_str:
+                    title_parts.append(label_str)
+
+            if show_metadata and metadata:
+                # Format metadata as key: value pairs
+                metadata_strs = [f"{k}: {v}" for k, v in metadata.items()]
+                title_parts.extend(metadata_strs)
+
+            # Create title or use empty string
+            if title_parts:
+                subplot_titles.append("<br>".join(title_parts))
+            else:
+                subplot_titles.append("")
 
         # Create subplots with proper spacing
         fig = make_subplots(
             rows=num_rows,
             cols=images_per_row,
+            subplot_titles=subplot_titles,
             horizontal_spacing=0.02,
-            vertical_spacing=0.02,
+            vertical_spacing=0.1 if subplot_titles and any(subplot_titles) else 0.02,
         )
 
         for i, idx in enumerate(indices):
             row = i // images_per_row + 1
             col = i % images_per_row + 1
 
-            # Get image from dataset and convert to HWC format
-            image = dataset[idx][0]
+            # Get image from dataset and parse it
+            datum = dataset[idx]
+            image, _, _ = parse_dataset_item(datum)
+
+            # Convert to HWC format
             image_hwc = image_to_hwc(image)
             image_uint8 = normalize_image_to_uint8(image_hwc)
             img_height, img_width = image_uint8.shape[:2]
@@ -774,15 +843,20 @@ class PlotlyBackend(BasePlottingBackend):
                 }
             )
 
-        # Update layout to set overall size
-        width_px = figsize[0] * 100
-        height_px = figsize[1] * 100
+        # Set figure size
+        if figsize is not None:
+            width_inches, height_inches = figsize
+            width = int(width_inches * 100)
+            height = int(height_inches * 100)
+        else:
+            width = 1000
+            height = 1000
 
         fig.update_layout(
-            width=width_px,
-            height=height_px,
+            width=width,
+            height=height,
             showlegend=False,
-            margin={"l": 0, "r": 0, "t": 30, "b": 0},
+            margin={"l": 0, "r": 0, "t": 50, "b": 0},
             title="Image Grid",
         )
 

@@ -21,19 +21,6 @@ class MockExecutionMetadata:
 
 
 @dataclass
-class MockPlottableCoverage:
-    """Mock coverage output for testing."""
-
-    uncovered_indices: NDArray[np.int64]
-
-    def plot_type(self) -> Literal["coverage"]:
-        return "coverage"
-
-    def meta(self) -> MockExecutionMetadata:
-        return MockExecutionMetadata(arguments={})
-
-
-@dataclass
 class MockPlottableBalance:
     """Mock balance output for testing."""
 
@@ -100,8 +87,8 @@ class MockPlottableBaseStats:
     def factors(self, exclude_constant: bool = True) -> dict[str, NDArray[np.float64]]:
         return self._factors
 
-    def plot_type(self) -> Literal["base_stats"]:
-        return "base_stats"
+    def plot_type(self) -> Literal["stats"]:
+        return "stats"
 
     def meta(self) -> MockExecutionMetadata:
         return MockExecutionMetadata(arguments={})
@@ -130,10 +117,15 @@ class MockDataset:
     images: list[NDArray[np.uint8]]
     dataset_id: str = "mock_dataset"
     index2label: dict[int, str] | None = None
+    targets: list[Any] | None = None
+    metadatas: list[dict[str, Any]] | None = None
 
-    def __getitem__(self, index: int) -> NDArray[np.uint8]:
+    def __getitem__(self, index: int) -> tuple[NDArray[np.uint8], Any, dict[str, Any]]:
         """Get image at index."""
-        return (self.images[index], np.array([]), {"id": index})
+        image = self.images[index]
+        target = self.targets[index] if self.targets else np.array([])
+        meta = self.metadatas[index] if self.metadatas else {"id": index}
+        return (image, target, meta)
 
     def __len__(self) -> int:
         """Get dataset length."""
@@ -149,14 +141,6 @@ class MockDataset:
 
 
 # Fixtures for common mock data
-
-
-@pytest.fixture
-def mock_coverage() -> MockPlottableCoverage:
-    """Create mock coverage output."""
-    return MockPlottableCoverage(
-        uncovered_indices=np.array([0, 5, 10, 15, 20], dtype=np.int64),
-    )
 
 
 @pytest.fixture
@@ -246,7 +230,7 @@ def mock_sufficiency_multi_class() -> MockPlottableSufficiency:
 
 
 @pytest.fixture
-def mock_base_stats_single_channel() -> MockPlottableBaseStats:
+def mock_stats_single_channel() -> MockPlottableBaseStats:
     """Create mock base stats output with single channel."""
     return MockPlottableBaseStats(
         _factors={
@@ -260,7 +244,7 @@ def mock_base_stats_single_channel() -> MockPlottableBaseStats:
 
 
 @pytest.fixture
-def mock_base_stats_multi_channel() -> MockPlottableBaseStats:
+def mock_stats_multi_channel() -> MockPlottableBaseStats:
     """Create mock base stats output with multiple channels."""
     n_samples = 100
     n_channels = 3

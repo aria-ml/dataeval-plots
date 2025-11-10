@@ -7,7 +7,6 @@ packages while maintaining type safety.
 The protocol hierarchy:
 - Plottable: Base protocol with plot_type discrimination
 - Type-specific protocols: Define exact attributes needed for each plot type
-  - PlottableCoverage
   - PlottableBalance
   - PlottableDiversity
   - PlottableSufficiency
@@ -29,7 +28,6 @@ from typing import (
     runtime_checkable,
 )
 
-import numpy as np
 from numpy.typing import NDArray
 from typing_extensions import ReadOnly
 
@@ -70,14 +68,6 @@ class ExecutionMetadata(Protocol):
     def version(self) -> str: ...
 
 
-@runtime_checkable
-class Indexable(Protocol):
-    """Protocol for indexable collection."""
-
-    def __len__(self) -> int: ...
-    def __getitem__(self, index: Any) -> Any: ...
-
-
 class DatasetMetadata(TypedDict, total=False):
     """Metadata for MAITE datasets.
 
@@ -101,14 +91,9 @@ class Dataset(Protocol):
     (Modular AI Trustworthy Engineering) specification. Datasets implementing
     this protocol can be used for image grid plotting and other visualization tasks.
 
-    Type Parameters
-    ----------------
-    _T_co : covariant
-        The type of items returned by __getitem__
-
     Methods
     -------
-    __getitem__(index: int) -> _T_co
+    __getitem__(index: int) -> Any
         Retrieve an item from the dataset by integer index
     __len__() -> int
         Return the number of items in the dataset
@@ -119,10 +104,10 @@ class Dataset(Protocol):
         Dataset metadata including id and optional index2label mapping
     """
 
-    def __getitem__(self, index: int, /) -> Any: ...
-    def __len__(self) -> int: ...
     @property
     def metadata(self) -> DatasetMetadata: ...
+    def __getitem__(self, index: int, /) -> Any: ...
+    def __len__(self) -> int: ...
 
 
 @runtime_checkable
@@ -134,14 +119,13 @@ class Plottable(Protocol):
     2. A meta() method that returns execution metadata (optional but recommended)
     """
 
-    def plot_type(self) -> str:
+    def plot_type(self) -> Literal["balance", "diversity", "sufficiency", "stats", "drift_mvdc"]:
         """Return the plot type identifier for routing to appropriate plot function.
 
         Returns
         -------
         str
-            One of: 'coverage', 'balance', 'diversity', 'sufficiency',
-            'base_stats', 'drift_mvdc'
+            One of: 'balance', 'diversity', 'sufficiency', 'stats', 'drift_mvdc'
         """
         ...
 
@@ -153,23 +137,6 @@ class Plottable(Protocol):
         ExecutionMetadata
             Metadata about the execution of the function that created this output
         """
-        ...
-
-
-@runtime_checkable
-class PlottableCoverage(Plottable, Protocol):
-    """Protocol for coverage plot outputs.
-
-    Required attributes:
-    - uncovered_indices: Array of indices for uncovered samples
-    - plot_type() -> 'coverage'
-    """
-
-    @property
-    def uncovered_indices(self) -> NDArray[np.integer[Any]]: ...
-
-    def plot_type(self) -> Literal["coverage"]:
-        """Return 'coverage' as the plot type."""
         ...
 
 
@@ -255,13 +222,13 @@ class PlottableSufficiency(Plottable, Protocol):
 
 
 @runtime_checkable
-class PlottableBaseStats(Plottable, Protocol):
+class PlottableStats(Plottable, Protocol):
     """Protocol for base statistics plot outputs.
 
     Required methods:
     - _get_channels(): Get channel information for plotting
     - factors(): Get factor data for histogram plotting
-    - plot_type() -> 'base_stats'
+    - plot_type() -> 'stats'
     """
 
     def _get_channels(
@@ -300,8 +267,8 @@ class PlottableBaseStats(Plottable, Protocol):
         """
         ...
 
-    def plot_type(self) -> Literal["base_stats"]:
-        """Return 'base_stats' as the plot type."""
+    def plot_type(self) -> Literal["stats"]:
+        """Return 'stats' as the plot type."""
         ...
 
 
@@ -332,11 +299,5 @@ class PlottableDriftMVDC(Plottable, Protocol):
 
 # Type alias for all plottable types
 PlottableType = (
-    Dataset
-    | PlottableCoverage
-    | PlottableBalance
-    | PlottableDiversity
-    | PlottableSufficiency
-    | PlottableBaseStats
-    | PlottableDriftMVDC
+    Dataset | PlottableBalance | PlottableDiversity | PlottableSufficiency | PlottableStats | PlottableDriftMVDC
 )

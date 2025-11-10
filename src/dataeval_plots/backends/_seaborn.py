@@ -10,20 +10,20 @@ from numpy.typing import NDArray
 from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
+    format_label_from_target,
     image_to_hwc,
+    merge_metadata,
+    parse_dataset_item,
     prepare_balance_data,
-    prepare_coverage_images,
     prepare_diversity_data,
     prepare_drift_data,
 )
 from dataeval_plots.protocols import (
     Dataset,
-    Indexable,
     PlottableBalance,
-    PlottableBaseStats,
-    PlottableCoverage,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableStats,
     PlottableSufficiency,
 )
 
@@ -34,59 +34,10 @@ if TYPE_CHECKING:
 class SeabornBackend(BasePlottingBackend):
     """Seaborn implementation of plotting backend with enhanced styling."""
 
-    def _plot_coverage(
-        self,
-        output: PlottableCoverage,
-        images: Indexable | None = None,  # Images | Dataset
-        top_k: int = 6,
-    ) -> Figure:
-        """
-        Plot the top k images together for visualization.
-
-        Parameters
-        ----------
-        output : PlottableCoverage
-            The coverage output object to plot
-        images : Images or Dataset
-            Original images (not embeddings) in (N, C, H, W) or (N, H, W) format
-        top_k : int, default 6
-            Number of images to plot (plotting assumes groups of 3)
-
-        Returns
-        -------
-        matplotlib.figure.Figure
-        """
-        import matplotlib.pyplot as plt
-        import numpy as np
-        import seaborn as sns
-
-        # Set seaborn style
-        sns.set_style("white")
-
-        # Use shared helper to prepare and validate images
-        selected_images, num_images, rows, cols = prepare_coverage_images(output, images, top_k)
-
-        fig, axs = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
-
-        # Flatten axes using numpy array explicitly for compatibility
-        axs_flat = np.asarray(axs).flatten()
-
-        for image, ax in zip(selected_images, axs_flat):
-            ax.imshow(image_to_hwc(image))
-            ax.axis("off")
-            # Add seaborn-style border
-            sns.despine(ax=ax, left=True, bottom=True)
-
-        for ax in axs_flat[num_images:]:
-            ax.axis("off")
-
-        fig.suptitle(f"Top {num_images} Uncovered Images", fontsize=14, y=1.02)
-        fig.tight_layout()
-        return fig
-
     def _plot_balance(
         self,
         output: PlottableBalance,
+        figsize: tuple[int, int] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -122,7 +73,9 @@ class SeabornBackend(BasePlottingBackend):
         df = pd.DataFrame(data, index=row_labels, columns=col_labels)  # type: ignore[arg-type]
 
         # Create figure with seaborn style
-        fig, ax = plt.subplots(figsize=(10, 10))
+        if figsize is None:
+            figsize = (10, 10)
+        fig, ax = plt.subplots(figsize=figsize)
 
         # Create heatmap with seaborn
         sns.heatmap(
@@ -149,6 +102,7 @@ class SeabornBackend(BasePlottingBackend):
     def _plot_diversity(
         self,
         output: PlottableDiversity,
+        figsize: tuple[int, int] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -184,7 +138,9 @@ class SeabornBackend(BasePlottingBackend):
             # Create DataFrame for seaborn
             df = pd.DataFrame(data, index=row_labels, columns=col_labels)  # type: ignore[arg-type]
 
-            fig, ax = plt.subplots(figsize=(10, 10))
+            if figsize is None:
+                figsize = (10, 10)
+            fig, ax = plt.subplots(figsize=figsize)
 
             sns.heatmap(
                 df,
@@ -208,7 +164,9 @@ class SeabornBackend(BasePlottingBackend):
             # Bar chart for diversity indices
             df = pd.DataFrame({"factor": row_labels, "diversity": output.diversity_index})
 
-            fig, ax = plt.subplots(figsize=(10, 8))
+            if figsize is None:
+                figsize = (10, 8)
+            fig, ax = plt.subplots(figsize=figsize)
 
             # Use seaborn barplot
             sns.barplot(data=df, x="factor", y="diversity", hue="factor", palette="viridis", legend=False, ax=ax)
@@ -225,6 +183,7 @@ class SeabornBackend(BasePlottingBackend):
     def _plot_sufficiency(
         self,
         output: PlottableSufficiency,
+        figsize: tuple[int, int] | None = None,
         class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
@@ -261,6 +220,7 @@ class SeabornBackend(BasePlottingBackend):
 
         figures = MatplotlibBackend()._plot_sufficiency(
             output,
+            figsize=figsize,
             class_names=class_names,
             show_error_bars=show_error_bars,
             show_asymptote=show_asymptote,
@@ -274,9 +234,10 @@ class SeabornBackend(BasePlottingBackend):
 
         return figures
 
-    def _plot_base_stats(
+    def _plot_stats(
         self,
-        output: PlottableBaseStats,
+        output: PlottableStats,
+        figsize: tuple[int, int] | None = None,
         log: bool = True,
         channel_limit: int | None = None,
         channel_index: int | Iterable[int] | None = None,
@@ -321,7 +282,9 @@ class SeabornBackend(BasePlottingBackend):
             num_metrics = len(factors)
             rows = math.ceil(num_metrics / 3)
             cols = min(num_metrics, 3)
-            fig, axs = plt.subplots(rows, 3, figsize=(cols * 3 + 1, rows * 3))
+            if figsize is None:
+                figsize = (cols * 3 + 1, rows * 3)
+            fig, axs = plt.subplots(rows, 3, figsize=figsize)
             axs_flat = np.asarray(axs).flatten()
 
             for ax, (metric_name, metric_values) in zip(axs_flat, factors.items()):
@@ -350,7 +313,9 @@ class SeabornBackend(BasePlottingBackend):
             num_metrics = len(data_keys)
             rows = math.ceil(num_metrics / 3)
             cols = min(num_metrics, 3)
-            fig, axs = plt.subplots(rows, 3, figsize=(cols * 3 + 1, rows * 3))
+            if figsize is None:
+                figsize = (cols * 3 + 1, rows * 3)
+            fig, axs = plt.subplots(rows, 3, figsize=figsize)
             axs_flat = np.asarray(axs).flatten()
 
             for ax, metric_name in zip(axs_flat, data_keys):
@@ -393,6 +358,7 @@ class SeabornBackend(BasePlottingBackend):
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
+        figsize: tuple[int, int] | None = None,
     ) -> Figure:
         """
         Render the roc_auc metric over the train/test data using Seaborn styling.
@@ -416,7 +382,9 @@ class SeabornBackend(BasePlottingBackend):
         # Use shared helper to prepare drift data
         resdf, trndf, tstdf, driftx, is_sufficient = prepare_drift_data(output)
 
-        fig, ax = plt.subplots(dpi=300, figsize=(10, 6))
+        if figsize is None:
+            figsize = (10, 6)
+        fig, ax = plt.subplots(dpi=300, figsize=figsize)
 
         if not is_sufficient:
             ax.text(
@@ -494,7 +462,10 @@ class SeabornBackend(BasePlottingBackend):
         dataset: Dataset,
         indices: Sequence[int],
         images_per_row: int = 3,
-        figsize: tuple[int, int] = (10, 10),
+        figsize: tuple[int, int] | None = None,
+        show_labels: bool = False,
+        show_metadata: bool = False,
+        additional_metadata: Sequence[dict[str, Any]] | None = None,
     ) -> Figure:
         """
         Plot a grid of images from a dataset with Seaborn styling.
@@ -507,16 +478,33 @@ class SeabornBackend(BasePlottingBackend):
             Indices of images to plot from the dataset
         images_per_row : int, default 3
             Number of images to display per row
-        figsize : tuple[int, int], default (10, 10)
+        figsize : tuple[int, int] or None, default None
             Figure size in inches (width, height)
+        show_labels : bool, default False
+            Whether to display labels extracted from targets
+        show_metadata : bool, default False
+            Whether to display metadata from the dataset items
+        additional_metadata : Sequence[dict[str, Any]] or None, default None
+            Additional metadata to display for each image (must match length of indices)
 
         Returns
         -------
         matplotlib.figure.Figure
+
+        Raises
+        ------
+        ValueError
+            If additional_metadata length doesn't match indices length
         """
         import matplotlib.pyplot as plt
         import numpy as np
         import seaborn as sns
+
+        # Validate additional_metadata length
+        if additional_metadata is not None and len(additional_metadata) != len(indices):
+            raise ValueError(
+                f"additional_metadata length ({len(additional_metadata)}) must match indices length ({len(indices)})"
+            )
 
         # Set seaborn style for consistent appearance
         sns.set_style("whitegrid")
@@ -524,22 +512,50 @@ class SeabornBackend(BasePlottingBackend):
         num_images = len(indices)
         num_rows = (num_images + images_per_row - 1) // images_per_row
 
+        if figsize is None:
+            figsize = (10, 10)
         fig, axes = plt.subplots(num_rows, images_per_row, figsize=figsize)
 
         # Flatten axes array for easier iteration
         axes_flat = np.asarray(axes).flatten()
+
+        # Get index2label mapping if available
+        index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
 
         for i, ax in enumerate(axes_flat):
             if i >= num_images:
                 ax.set_visible(False)
                 continue
 
-            # Get image from dataset and convert to HWC format
-            image = dataset[indices[i]][0]
-            image_hwc = image_to_hwc(image)
+            # Get dataset item and parse it
+            datum = dataset[indices[i]]
+            image, target, metadata = parse_dataset_item(datum)
 
+            # Merge with additional metadata if provided
+            if additional_metadata is not None:
+                metadata = merge_metadata(metadata, additional_metadata[i])
+
+            # Convert image to HWC format and display
+            image_hwc = image_to_hwc(image)
             ax.imshow(image_hwc)
             ax.axis("off")
+
+            # Build title from labels and metadata
+            title_parts = []
+
+            if show_labels and target is not None:
+                label_str = format_label_from_target(target, index2label)
+                if label_str:
+                    title_parts.append(label_str)
+
+            if show_metadata and metadata:
+                # Format metadata as key: value pairs
+                metadata_strs = [f"{k}: {v}" for k, v in metadata.items()]
+                title_parts.extend(metadata_strs)
+
+            # Set title if we have any parts
+            if title_parts:
+                ax.set_title("\n".join(title_parts), fontsize=8, pad=3)
 
         plt.tight_layout()
         return fig

@@ -15,12 +15,10 @@ from dataeval_plots._registry import (
 )
 from dataeval_plots.protocols import (
     Dataset,
-    Indexable,
     PlottableBalance,
-    PlottableBaseStats,
-    PlottableCoverage,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableStats,
     PlottableSufficiency,
     PlottableType,
 )
@@ -36,19 +34,9 @@ __all__ = [
 
 @overload
 def plot(
-    output: PlottableCoverage,
-    /,
-    backend: str | None = None,
-    *,
-    images: Indexable | None = None,
-    top_k: int = 6,
-) -> Any: ...
-
-
-@overload
-def plot(
     output: PlottableBalance,
     /,
+    figsize: tuple[int, int] | None = None,
     backend: str | None = None,
     *,
     row_labels: Sequence[Any] | NDArray[Any] | None = None,
@@ -61,6 +49,7 @@ def plot(
 def plot(
     output: PlottableDiversity,
     /,
+    figsize: tuple[int, int] | None = None,
     backend: str | None = None,
     *,
     row_labels: Sequence[Any] | NDArray[Any] | None = None,
@@ -73,6 +62,7 @@ def plot(
 def plot(
     output: PlottableSufficiency,
     /,
+    figsize: tuple[int, int] | None = None,
     backend: str | None = None,
     *,
     class_names: Sequence[str] | None = None,
@@ -84,8 +74,9 @@ def plot(
 
 @overload
 def plot(
-    output: PlottableBaseStats,
+    output: PlottableStats,
     /,
+    figsize: tuple[int, int] | None = None,
     backend: str | None = None,
     *,
     log: bool = True,
@@ -98,6 +89,7 @@ def plot(
 def plot(
     output: PlottableDriftMVDC,
     /,
+    figsize: tuple[int, int] | None = None,
     backend: str | None = None,
 ) -> Any: ...
 
@@ -106,11 +98,14 @@ def plot(
 def plot(
     output: Dataset,
     /,
+    figsize: tuple[int, int] | None = None,
     backend: str | None = None,
     *,
     indices: Sequence[int],
     images_per_row: int = 3,
-    figsize: tuple[int, int] = (10, 10),
+    show_labels: bool = False,
+    show_metadata: bool = False,
+    additional_metadata: Sequence[dict[str, Any]] | None = None,
 ) -> Any: ...
 
 
@@ -118,12 +113,15 @@ def plot(
 def plot(
     output: PlottableType,
     /,
+    figsize: tuple[int, int] | None = None,
     backend: str | None = None,
     **kwargs: Any,
 ) -> Any: ...
 
 
-def plot(output: PlottableType, /, backend: str | None = None, **kwargs: Any) -> Any:
+def plot(
+    output: PlottableType, /, figsize: tuple[int, int] | None = None, backend: str | None = None, **kwargs: Any
+) -> Any:
     """
     Plot any DataEval output object.
 
@@ -131,6 +129,8 @@ def plot(output: PlottableType, /, backend: str | None = None, **kwargs: Any) ->
     ----------
     output : Plottable
         DataEval output object to visualize (must implement Plottable protocol)
+    figsize : tuple[int, int] or None, default None
+        Figure size in inches (width, height). If None, uses backend defaults.
     backend : str or None, default None
         Plotting backend ('matplotlib', 'seaborn', 'plotly', 'altair').
         If None, uses default backend.
@@ -157,6 +157,9 @@ def plot(output: PlottableType, /, backend: str | None = None, **kwargs: Any) ->
     >>> fig = plot(result, images=dataset, top_k=6)
     >>> fig.savefig("coverage.png")
 
+    >>> # Specify custom figure size
+    >>> plot(result, figsize=(12, 8), images=dataset)
+
     >>> # Use a different backend
     >>> plot(result, backend="seaborn", images=dataset)
 
@@ -166,4 +169,4 @@ def plot(output: PlottableType, /, backend: str | None = None, **kwargs: Any) ->
     >>> plot(result, images=dataset)  # Uses seaborn
     """
     plotting_backend = get_backend(backend)
-    return plotting_backend.plot(output, **kwargs)
+    return plotting_backend.plot(output, figsize=figsize, **kwargs)

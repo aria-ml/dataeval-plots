@@ -8,7 +8,6 @@ from conftest import (
     MockDataset,
     MockPlottableBalance,
     MockPlottableBaseStats,
-    MockPlottableCoverage,
     MockPlottableDiversity,
     MockPlottableDriftMVDC,
     MockPlottableSufficiency,
@@ -26,16 +25,6 @@ class TestPlotlyBackend:
     def backend(self) -> PlotlyBackend:
         """Create Plotly backend instance."""
         return PlotlyBackend()
-
-    def test_plot_coverage(
-        self,
-        backend: PlotlyBackend,
-        mock_coverage: MockPlottableCoverage,
-    ) -> None:
-        """Test plotting coverage output."""
-        # Coverage plotting requires images data, so we expect a ValueError
-        with pytest.raises(ValueError, match="images parameter is required"):
-            backend.plot(mock_coverage)
 
     def test_plot_balance_global(
         self,
@@ -161,49 +150,49 @@ class TestPlotlyBackend:
         for fig in result:
             assert isinstance(fig, go.Figure)
 
-    def test_plot_base_stats_single_channel(
+    def test_plot_stats_single_channel(
         self,
         backend: PlotlyBackend,
-        mock_base_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableBaseStats,
     ) -> None:
         """Test plotting base stats with single channel."""
-        result = backend.plot(mock_base_stats_single_channel)
+        result = backend.plot(mock_stats_single_channel)
 
         assert isinstance(result, go.Figure)
         assert len(result.data) > 0
 
-    def test_plot_base_stats_multi_channel(
+    def test_plot_stats_multi_channel(
         self,
         backend: PlotlyBackend,
-        mock_base_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableBaseStats,
     ) -> None:
         """Test plotting base stats with multiple channels."""
-        result = backend.plot(mock_base_stats_multi_channel)
+        result = backend.plot(mock_stats_multi_channel)
 
         assert isinstance(result, go.Figure)
         assert len(result.data) > 0
 
-    def test_plot_base_stats_with_channel_limit(
+    def test_plot_stats_with_channel_limit(
         self,
         backend: PlotlyBackend,
-        mock_base_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableBaseStats,
     ) -> None:
         """Test plotting base stats with channel limit."""
-        result = backend.plot(mock_base_stats_multi_channel, channel_limit=2)
+        result = backend.plot(mock_stats_multi_channel, channel_limit=2)
 
         assert isinstance(result, go.Figure)
 
-    def test_plot_base_stats_log_scale(
+    def test_plot_stats_log_scale(
         self,
         backend: PlotlyBackend,
-        mock_base_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableBaseStats,
     ) -> None:
         """Test plotting base stats with log scale."""
-        result = backend.plot(mock_base_stats_single_channel, log=True)
+        result = backend.plot(mock_stats_single_channel, log=True)
 
         assert isinstance(result, go.Figure)
 
-    def test_plot_base_stats_empty_factors(
+    def test_plot_stats_empty_factors(
         self,
         backend: PlotlyBackend,
     ) -> None:

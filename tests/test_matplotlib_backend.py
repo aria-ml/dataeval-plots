@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 from conftest import (
     MockDataset,
     MockPlottableBalance,
     MockPlottableBaseStats,
-    MockPlottableCoverage,
     MockPlottableDiversity,
     MockPlottableDriftMVDC,
     MockPlottableSufficiency,
@@ -26,16 +26,6 @@ class TestMatplotlibBackend:
     def backend(self) -> MatplotlibBackend:
         """Create Matplotlib backend instance."""
         return MatplotlibBackend()
-
-    def test_plot_coverage(
-        self,
-        backend: MatplotlibBackend,
-        mock_coverage: MockPlottableCoverage,
-    ) -> None:
-        """Test plotting coverage output."""
-        # Coverage plotting requires images data, so we expect a ValueError
-        with pytest.raises(ValueError, match="images parameter is required"):
-            backend.plot(mock_coverage)
 
     def test_plot_balance_global(
         self,
@@ -163,49 +153,49 @@ class TestMatplotlibBackend:
         for fig in result:
             assert isinstance(fig, Figure)
 
-    def test_plot_base_stats_single_channel(
+    def test_plot_stats_single_channel(
         self,
         backend: MatplotlibBackend,
-        mock_base_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableBaseStats,
     ) -> None:
         """Test plotting base stats with single channel."""
-        result = backend.plot(mock_base_stats_single_channel)
+        result = backend.plot(mock_stats_single_channel)
 
         assert isinstance(result, Figure)
         assert len(result.axes) > 0
 
-    def test_plot_base_stats_multi_channel(
+    def test_plot_stats_multi_channel(
         self,
         backend: MatplotlibBackend,
-        mock_base_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableBaseStats,
     ) -> None:
         """Test plotting base stats with multiple channels."""
-        result = backend.plot(mock_base_stats_multi_channel)
+        result = backend.plot(mock_stats_multi_channel)
 
         assert isinstance(result, Figure)
         assert len(result.axes) > 0
 
-    def test_plot_base_stats_with_channel_limit(
+    def test_plot_stats_with_channel_limit(
         self,
         backend: MatplotlibBackend,
-        mock_base_stats_multi_channel: MockPlottableBaseStats,
+        mock_stats_multi_channel: MockPlottableBaseStats,
     ) -> None:
         """Test plotting base stats with channel limit."""
-        result = backend.plot(mock_base_stats_multi_channel, channel_limit=2)
+        result = backend.plot(mock_stats_multi_channel, channel_limit=2)
 
         assert isinstance(result, Figure)
 
-    def test_plot_base_stats_log_scale(
+    def test_plot_stats_log_scale(
         self,
         backend: MatplotlibBackend,
-        mock_base_stats_single_channel: MockPlottableBaseStats,
+        mock_stats_single_channel: MockPlottableBaseStats,
     ) -> None:
         """Test plotting base stats with log scale."""
-        result = backend.plot(mock_base_stats_single_channel, log=True)
+        result = backend.plot(mock_stats_single_channel, log=True)
 
         assert isinstance(result, Figure)
 
-    def test_plot_base_stats_empty_factors(
+    def test_plot_stats_empty_factors(
         self,
         backend: MatplotlibBackend,
     ) -> None:
@@ -267,3 +257,113 @@ class TestMatplotlibBackend:
         assert isinstance(result, Figure)
         # With 1 image and 3 images_per_row, we get 1 row x 3 columns = 3 axes
         assert len(result.axes) == 3
+
+    def test_plot_image_grid_with_labels(
+        self,
+        backend: MatplotlibBackend,
+    ) -> None:
+        """Test plotting image grid with labels from targets."""
+        # Create dataset with classification targets
+        images = [np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8) for _ in range(3)]
+        targets = [
+            np.array([0.9, 0.1]),  # Probabilities for class 0
+            np.array([0.2, 0.8]),  # Probabilities for class 1
+            np.array([0.5, 0.5]),  # Equal probabilities
+        ]
+        dataset = MockDataset(
+            images=images,
+            targets=targets,
+            index2label={0: "cat", 1: "dog"},
+        )
+
+        indices = [0, 1, 2]
+        result = backend._plot_image_grid(dataset, indices, show_labels=True)
+
+        assert isinstance(result, Figure)
+        assert len(result.axes) == 3
+        # Check that titles are set (labels are shown)
+        assert result.axes[0].get_title() != ""
+        assert "cat" in result.axes[0].get_title()
+        assert "dog" in result.axes[1].get_title()
+
+    def test_plot_image_grid_with_metadata(
+        self,
+        backend: MatplotlibBackend,
+    ) -> None:
+        """Test plotting image grid with metadata."""
+        # Create dataset with metadata
+        images = [np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8) for _ in range(3)]
+        metadatas = [
+            {"scene": "outdoor", "time": "day"},
+            {"scene": "indoor", "time": "night"},
+            {"scene": "outdoor", "time": "night"},
+        ]
+        dataset = MockDataset(images=images, metadatas=metadatas)
+
+        indices = [0, 1, 2]
+        result = backend._plot_image_grid(dataset, indices, show_metadata=True)
+
+        assert isinstance(result, Figure)
+        assert len(result.axes) == 3
+        # Check that titles contain metadata
+        assert "scene" in result.axes[0].get_title()
+        assert "outdoor" in result.axes[0].get_title()
+
+    def test_plot_image_grid_with_additional_metadata(
+        self,
+        backend: MatplotlibBackend,
+        mock_dataset: MockDataset,
+    ) -> None:
+        """Test plotting image grid with additional metadata."""
+        indices = [0, 1, 2]
+        additional_metadata = [
+            {"score": 0.95},
+            {"score": 0.87},
+            {"score": 0.92},
+        ]
+
+        result = backend._plot_image_grid(
+            mock_dataset,
+            indices,
+            show_metadata=True,
+            additional_metadata=additional_metadata,
+        )
+
+        assert isinstance(result, Figure)
+        assert len(result.axes) == 3
+        # Check that titles contain additional metadata
+        assert "score" in result.axes[0].get_title()
+
+    def test_plot_image_grid_with_object_detection_targets(
+        self,
+        backend: MatplotlibBackend,
+    ) -> None:
+        """Test plotting image grid with object detection targets."""
+        # Create dataset with object detection targets
+        images = [np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8) for _ in range(2)]
+        targets = [
+            {
+                "boxes": np.array([[0, 0, 10, 10], [5, 5, 15, 15]]),
+                "labels": np.array([0, 1]),
+                "scores": np.array([0.9, 0.8]),
+            },
+            {
+                "boxes": np.array([[2, 2, 12, 12]]),
+                "labels": np.array([1]),
+                "scores": np.array([0.95]),
+            },
+        ]
+        dataset = MockDataset(
+            images=images,
+            targets=targets,
+            index2label={0: "person", 1: "car"},
+        )
+
+        indices = [0, 1]
+        result = backend._plot_image_grid(dataset, indices, show_labels=True, images_per_row=2)
+
+        assert isinstance(result, Figure)
+        assert len(result.axes) == 2  # 1 row x 2 columns
+        # Check that titles show object counts
+        assert "person" in result.axes[0].get_title()
+        assert "car" in result.axes[0].get_title() or "car" in result.axes[1].get_title()

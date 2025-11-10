@@ -19,6 +19,7 @@ pip install dataeval-plots[all]
 ```
 
 For development:
+
 ```bash
 pip install -e dataeval-plots[all]
 ```
@@ -109,7 +110,7 @@ dataeval-plots/                     # Separate plotting package
 
 All DataEval output classes implement the `Plottable` protocol, which requires:
 
-- `plot_type()`: Returns a string identifying the plot type (e.g., "coverage", "balance")
+- `plot_type()`: Returns a string identifying the plot type (e.g., "balance")
 - `meta()`: Returns execution metadata
 
 This enables:
@@ -123,11 +124,10 @@ This enables:
 
 | Output Type | Plot Type | Description | Source |
 |-------------|-----------|-------------|--------|
-| `CoverageOutput` | "coverage" | Image grid showing uncovered samples | [dataeval/_bias.py](../dataeval/src/dataeval/outputs/_bias.py) |
 | `BalanceOutput` | "balance" | Heatmap of class balance metrics | [dataeval/_bias.py](../dataeval/src/dataeval/outputs/_bias.py) |
 | `DiversityOutput` | "diversity" | Visualization of diversity indices | [dataeval/_bias.py](../dataeval/src/dataeval/outputs/_bias.py) |
 | `SufficiencyOutput` | "sufficiency" | Learning curves with extrapolation | [dataeval/_workflows.py](../dataeval/src/dataeval/outputs/_workflows.py) |
-| `BaseStatsOutput` | "base_stats" | Statistical histograms and distributions | [dataeval/_stats.py](../dataeval/src/dataeval/outputs/_stats.py) |
+| `BaseStatsOutput` | "stats" | Statistical histograms and distributions | [dataeval/_stats.py](../dataeval/src/dataeval/outputs/_stats.py) |
 | `DriftMVDCOutput` | "drift_mvdc" | Drift detection plots (MVDC analysis) | [dataeval/_drift.py](../dataeval/src/dataeval/outputs/_drift.py) |
 
 Each output type implements the `Plottable` protocol and can be plotted using any registered backend.
@@ -149,7 +149,7 @@ class MyCustomOutput:
     uncovered_indices: NDArray
 
     def plot_type(self) -> str:
-        return "coverage"  # Reuse existing coverage plotting
+        return "balance"  # Reuse existing balance plotting
 
     def meta(self) -> ExecutionMetadata:
         return ExecutionMetadata.empty()
@@ -165,16 +165,11 @@ Extend `BasePlottingBackend` to create a new plotting backend:
 
 ```python
 from dataeval_plots.backends._base import BasePlottingBackend
-from dataeval_plots.protocols import PlottableCoverage, PlottableBalance
+from dataeval_plots.protocols import PlottableBalance
 from dataeval_plots import register_backend
 
 class CustomBackend(BasePlottingBackend):
     """Custom plotting backend using your preferred library."""
-
-    def _plot_coverage(self, output: PlottableCoverage, **kwargs):
-        # Implement coverage plotting
-        # Access output.uncovered_indices, etc.
-        return my_figure
 
     def _plot_balance(self, output: PlottableBalance, **kwargs):
         # Implement balance plotting

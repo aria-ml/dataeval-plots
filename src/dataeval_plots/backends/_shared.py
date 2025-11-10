@@ -10,7 +10,6 @@ from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from dataeval_plots.protocols import (
-        Indexable,
         PlottableBalance,
         PlottableDiversity,
         PlottableDriftMVDC,
@@ -24,12 +23,14 @@ __all__ = [
     "prepare_balance_data",
     "prepare_diversity_data",
     "prepare_drift_data",
-    "prepare_coverage_images",
     "normalize_image_to_uint8",
     "image_to_base64_png",
     "image_to_hwc",
     "calculate_subplot_grid",
     "validate_class_names",
+    "parse_dataset_item",
+    "format_label_from_target",
+    "merge_metadata",
     "CHANNELWISE_METRICS",
 ]
 
@@ -287,60 +288,6 @@ def prepare_drift_data(
     return resdf, trndf, tstdf, driftx, True
 
 
-def prepare_coverage_images(
-    output: Any,  # PlottableCoverage
-    images: Indexable | None,
-    top_k: int,
-) -> tuple[list[Any], int, int, int]:
-    """
-    Prepare and validate coverage images for plotting.
-
-    Parameters
-    ----------
-    output : PlottableCoverage
-        The coverage output object to plot
-    images : Indexable or None
-        Original images (not embeddings)
-    top_k : int
-        Number of images to plot
-
-    Returns
-    -------
-    tuple
-        (selected_images, num_images, rows, cols)
-
-    Raises
-    ------
-    ValueError
-        If images is None or indices are out of bounds
-    """
-    if images is None:
-        raise ValueError("images parameter is required for coverage plotting")
-
-    if np.max(output.uncovered_indices) > len(images):
-        raise ValueError(
-            f"Uncovered indices {output.uncovered_indices} specify images "
-            f"unavailable in the provided number of images {len(images)}."
-        )
-
-    # Determine which images to plot
-    selected_indices = output.uncovered_indices[:top_k]
-    num_images = min(top_k, len(selected_indices))
-
-    # Calculate grid layout (3 columns)
-    rows = int(np.ceil(num_images / 3))
-    cols = min(3, num_images)
-
-    selected_images = []
-
-    # Get selected images
-    for i in range(num_images):
-        datum = images[i]
-        selected_images.append(datum[0] if isinstance(datum, tuple) else datum)
-
-    return selected_images, num_images, rows, cols
-
-
 def normalize_image_to_uint8(img_np: NDArray[Any]) -> NDArray[Any]:
     """
     Normalize image array to 0-255 uint8 range.
@@ -452,3 +399,161 @@ def validate_class_names(measures: NDArray[Any], class_names: Sequence[str] | No
     """
     if class_names is not None and len(measures) != len(class_names):
         raise IndexError("Class name count does not align with measures")
+
+
+def parse_dataset_item(datum: Any) -> tuple[Any, Any | None, dict[str, Any]]:
+    """
+    Parse a dataset item into image, target, and metadata components.
+
+    Parameters
+    ----------
+    datum : Any
+        Dataset item that can be:
+        - Just an image (array-like)
+        - Tuple of (image,)
+        - Tuple of (image, target)
+        - Tuple of (image, target, metadata)
+
+    Returns
+    -------
+    tuple
+        (image, target, metadata) where:
+        - image: The image array
+        - target: Target labels/boxes/etc. or None if not present
+        - metadata: Dictionary of metadata (empty dict if not present)
+    """
+    if isinstance(datum, tuple):
+        if len(datum) == 1:
+            return datum[0], None, {}
+        if len(datum) == 2:
+            return datum[0], datum[1], {}
+        if len(datum) >= 3:
+            # Extract metadata - convert to dict if it's not already
+            meta = datum[2] if isinstance(datum[2], dict) else {}
+            return datum[0], datum[1], meta
+
+    # Single item - just the image
+    return datum, None, {}
+
+
+def format_label_from_target(
+    target: Any,
+    index2label: dict[int, str] | None = None,
+) -> str | None:
+    """
+    Format a human-readable label string from various target types.
+
+    Parameters
+    ----------
+    target : Any
+        Target can be:
+        - Array of pseudo probabilities or one-hot encoded labels
+        - Dict with keys 'boxes', 'labels', 'scores' (object detection)
+        - Object with attributes 'boxes', 'labels', 'scores'
+        - None
+    index2label : dict[int, str] or None
+        Mapping from class indices to class names
+
+    Returns
+    -------
+    str or None
+        Formatted label string or None if target is None
+    """
+    if target is None:
+        return None
+
+    # Handle dict or object with boxes/labels/scores (object detection format)
+    boxes = None
+    labels = None
+
+    if isinstance(target, dict):
+        boxes = target.get("boxes")
+        labels = target.get("labels")
+        target.get("scores")
+    elif hasattr(target, "boxes") and hasattr(target, "labels"):
+        boxes = getattr(target, "boxes", None)
+        labels = getattr(target, "labels", None)
+        getattr(target, "scores", None)
+
+    # If we found object detection format
+    if boxes is not None and labels is not None:
+        boxes_arr = np.asarray(boxes)
+        labels_arr = np.asarray(labels)
+
+        if len(boxes_arr) == 0:
+            return "No objects"
+
+        # Check if labels are one-hot or probabilities (2D array)
+        label_indices = np.argmax(labels_arr, axis=1) if labels_arr.ndim == 2 else labels_arr.astype(int)
+
+        # Count objects per class
+        unique_labels, counts = np.unique(label_indices, return_counts=True)
+
+        # Format label string
+        label_parts = []
+        for lbl, cnt in zip(unique_labels, counts):
+            if index2label and lbl in index2label:
+                label_parts.append(f"{index2label[lbl]}: {cnt}")
+            else:
+                label_parts.append(f"Class {lbl}: {cnt}")
+
+        return ", ".join(label_parts)
+
+    # Handle array of probabilities or one-hot encoding (classification)
+    target_arr = np.asarray(target)
+
+    if target_arr.ndim == 0:
+        # Scalar label
+        label_idx = int(target_arr)
+        if index2label and label_idx in index2label:
+            return index2label[label_idx]
+        return f"Class {label_idx}"
+
+    if target_arr.ndim == 1 and len(target_arr) > 0:
+        # 1D array - could be probabilities or one-hot
+        if target_arr.dtype in (np.float32, np.float64):
+            # Check if it's one-hot or probabilities
+            if np.allclose(target_arr.sum(), 1.0) and np.max(target_arr) <= 1.0:
+                # Probabilities or one-hot
+                label_idx = int(np.argmax(target_arr))
+                confidence = target_arr[label_idx]
+
+                if index2label and label_idx in index2label:
+                    return f"{index2label[label_idx]} ({confidence:.2f})"
+                return f"Class {label_idx} ({confidence:.2f})"
+        else:
+            # Integer array - direct label
+            if len(target_arr) == 1:
+                label_idx = int(target_arr[0])
+                if index2label and label_idx in index2label:
+                    return index2label[label_idx]
+                return f"Class {label_idx}"
+
+    return None
+
+
+def merge_metadata(
+    base_metadata: dict[str, Any],
+    additional_metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """
+    Merge base metadata with additional metadata.
+
+    Parameters
+    ----------
+    base_metadata : dict[str, Any]
+        Base metadata from the dataset item
+    additional_metadata : dict[str, Any] or None
+        Additional metadata to merge in
+
+    Returns
+    -------
+    dict[str, Any]
+        Merged metadata dictionary
+    """
+    if additional_metadata is None:
+        return base_metadata
+
+    merged = base_metadata.copy()
+    merged.update(additional_metadata)
+    return merged
