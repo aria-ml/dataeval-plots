@@ -12,16 +12,11 @@ from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
     calculate_projection,
     calculate_subplot_grid,
-    draw_bounding_boxes,
-    extract_boxes_and_labels,
     format_label_from_target,
-    image_to_hwc,
-    merge_metadata,
-    normalize_image_to_uint8,
-    parse_dataset_item,
     prepare_balance_data,
     prepare_diversity_data,
     prepare_drift_data,
+    process_dataset_item_for_display,
     project_steps,
     validate_class_names,
 )
@@ -761,16 +756,30 @@ class PlotlyBackend(BasePlottingBackend):
         # Get index2label mapping if available
         index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
 
+        # Auto-detect image size from first image if figsize not specified
+        first_img_height = None
+        first_img_width = None
+        if figsize is None:
+            datum = dataset[indices[0]]
+            add_meta = additional_metadata[0] if additional_metadata is not None else None
+            first_image, _, _ = process_dataset_item_for_display(
+                datum,
+                additional_metadata=add_meta,
+                index2label=index2label,
+            )
+            first_img_height, first_img_width = first_image.shape[:2]
+
         # Build subplot titles
         subplot_titles = []
         for i, idx in enumerate(indices):
-            # Get dataset item and parse it
+            # Get dataset item and parse it (just for title building)
             datum = dataset[idx]
-            image, target, metadata = parse_dataset_item(datum)
-
-            # Merge with additional metadata if provided
-            if additional_metadata is not None:
-                metadata = merge_metadata(metadata, additional_metadata[i])
+            add_meta = additional_metadata[i] if additional_metadata is not None else None
+            _, target, metadata = process_dataset_item_for_display(
+                datum,
+                additional_metadata=add_meta,
+                index2label=index2label,
+            )
 
             # Build title from labels and metadata
             title_parts = []
@@ -804,31 +813,20 @@ class PlotlyBackend(BasePlottingBackend):
             row = i // images_per_row + 1
             col = i % images_per_row + 1
 
-            # Get image from dataset and parse it
+            # Get dataset item and process it for display
             datum = dataset[idx]
-            image, target, _ = parse_dataset_item(datum)
+            add_meta = additional_metadata[i] if additional_metadata is not None else None
+            processed_image, _, _ = process_dataset_item_for_display(
+                datum,
+                additional_metadata=add_meta,
+                index2label=index2label,
+            )
 
-            # Convert to HWC format
-            image_hwc = image_to_hwc(image)
-            image_uint8 = normalize_image_to_uint8(image_hwc)
-
-            # Check if we have object detection targets and should draw boxes
-            boxes, labels, scores = extract_boxes_and_labels(target)
-            if boxes is not None and len(boxes) > 0:
-                # Draw bounding boxes
-                image_uint8 = draw_bounding_boxes(
-                    image_uint8,
-                    boxes,
-                    labels,
-                    scores,
-                    index2label,
-                )
-
-            img_height, img_width = image_uint8.shape[:2]
+            img_height, img_width = processed_image.shape[:2]
 
             # Add image as a trace - using Image trace which auto-fills the subplot
             fig.add_trace(
-                go.Image(z=image_uint8),
+                go.Image(z=processed_image),
                 row=row,
                 col=col,
             )
@@ -864,15 +862,12 @@ class PlotlyBackend(BasePlottingBackend):
             width = int(width_inches * 100)
             height = int(height_inches * 100)
         else:
-            width = 1000
-            height = 1000
+            # Auto-detect based on image dimensions with slim borders (5% padding on top/bottom per row)
+            padding_factor = 0.05
+            single_img_height = int(first_img_height * (1 + 2 * padding_factor))
+            width = first_img_width * images_per_row
+            height = single_img_height * num_rows + 50  # Add 50 for title space
 
-        fig.update_layout(
-            width=width,
-            height=height,
-            showlegend=False,
-            margin={"l": 0, "r": 0, "t": 50, "b": 0},
-            title="Image Grid",
-        )
+        fig.update_layout(width=width, height=height, showlegend=False, margin={"l": 0, "r": 0, "t": 50, "b": 0})
 
         return fig

@@ -730,9 +730,17 @@ class AltairBackend(BasePlottingBackend):
             img_width = width // images_per_row
             img_height = height // num_rows if num_rows > 0 else height
         else:
-            # Default: approximate conversion from inches to pixels (10, 10) inches
-            img_width = int((10 * 100) / images_per_row)
-            img_height = int((10 * 100) / num_rows) if num_rows > 0 else 100
+            # Auto-detect size based on first image dimensions
+            # Get the first image to determine dimensions
+            datum = dataset[indices[0]]
+            image, _, _ = parse_dataset_item(datum)
+            image_hwc = image_to_hwc(image)
+            first_img_height, first_img_width = image_hwc.shape[:2]
+
+            # Use actual image dimensions with slim borders (5% padding on top/bottom)
+            padding_factor = 0.05
+            img_width = first_img_width
+            img_height = int(first_img_height * (1 + 2 * padding_factor))  # Add top and bottom padding
 
         # Prepare all image data with grid positions
         image_data = []
@@ -809,15 +817,9 @@ class AltairBackend(BasePlottingBackend):
                 )
             )
             chart = (image_chart + text_chart).properties(
-                width=img_width * images_per_row,
-                height=img_height * num_rows,
-                title="Image Grid",
+                width=img_width * images_per_row, height=img_height * num_rows
             )
         else:
-            chart = image_chart.properties(
-                width=img_width * images_per_row,
-                height=img_height * num_rows,
-                title="Image Grid",
-            )
+            chart = image_chart.properties(width=img_width * images_per_row, height=img_height * num_rows)
 
         return chart
