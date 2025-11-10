@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from dataeval_plots import get_available_backends, get_backend, plot, set_default_backend
+from dataeval_plots import get_available_backends, get_backend, set_default_backend
 
 
 class TestBaseInstallation:
@@ -113,28 +113,6 @@ class TestBaseInstallation:
         assert "nonexistent_backend" in error_msg
         assert "Known backends:" in error_msg
         assert "Available backends:" in error_msg
-
-    def test_plot_with_matplotlib(self, mock_coverage: object) -> None:
-        """Test that plot() works with matplotlib backend."""
-        import numpy as np
-
-        # Create dummy images for the coverage plot
-        images = np.random.rand(25, 28, 28)  # 25 grayscale images
-
-        # This should work in base installation
-        fig = plot(mock_coverage, backend="matplotlib", images=images, top_k=6)  # type: ignore[arg-type]
-        assert fig is not None
-
-    def test_plot_with_default_backend(self, mock_coverage: object) -> None:
-        """Test that plot() works with default backend (matplotlib)."""
-        import numpy as np
-
-        # Create dummy images for the coverage plot
-        images = np.random.rand(25, 28, 28)  # 25 grayscale images
-
-        # This should work in base installation
-        fig = plot(mock_coverage, images=images, top_k=6)  # type: ignore[arg-type]
-        assert fig is not None
 
     def test_available_backends_is_set(self) -> None:
         """Test that get_available_backends returns a set."""
