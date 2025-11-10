@@ -31,6 +31,8 @@ __all__ = [
     "parse_dataset_item",
     "format_label_from_target",
     "merge_metadata",
+    "draw_bounding_boxes",
+    "extract_boxes_and_labels",
     "CHANNELWISE_METRICS",
 ]
 
@@ -557,3 +559,199 @@ def merge_metadata(
     merged = base_metadata.copy()
     merged.update(additional_metadata)
     return merged
+
+
+def extract_boxes_and_labels(
+    target: Any,
+) -> tuple[NDArray[Any] | None, NDArray[Any] | None, NDArray[Any] | None]:
+    """
+    Extract bounding boxes, labels, and scores from object detection targets.
+
+    Parameters
+    ----------
+    target : Any
+        Target that may contain object detection information:
+        - Dict with keys 'boxes', 'labels', 'scores'
+        - Object with attributes 'boxes', 'labels', 'scores'
+
+    Returns
+    -------
+    tuple[NDArray | None, NDArray | None, NDArray | None]
+        (boxes, labels, scores) where each is None if not found.
+        boxes are in XYXY format.
+    """
+    boxes = None
+    labels = None
+    scores = None
+
+    if isinstance(target, dict):
+        boxes = target.get("boxes")
+        labels = target.get("labels")
+        scores = target.get("scores")
+    elif hasattr(target, "boxes") and hasattr(target, "labels"):
+        boxes = getattr(target, "boxes", None)
+        labels = getattr(target, "labels", None)
+        scores = getattr(target, "scores", None)
+
+    if boxes is not None:
+        boxes = np.asarray(boxes)
+    if labels is not None:
+        labels = np.asarray(labels)
+    if scores is not None:
+        scores = np.asarray(scores)
+
+    return boxes, labels, scores
+
+
+def draw_bounding_boxes(
+    image: NDArray[Any],
+    boxes: NDArray[Any],
+    labels: NDArray[Any] | None = None,
+    scores: NDArray[Any] | None = None,
+    index2label: dict[int, str] | None = None,
+    color: tuple[int, int, int] = (0, 255, 0),
+    thickness: int = 2,
+) -> NDArray[Any]:
+    """
+    Draw bounding boxes on an image.
+
+    Parameters
+    ----------
+    image : NDArray
+        Image array in HWC format (uint8)
+    boxes : NDArray
+        Bounding boxes in XYXY format, shape (N, 4)
+    labels : NDArray or None, default None
+        Label indices or probabilities for each box
+    scores : NDArray or None, default None
+        Confidence scores for each box
+    index2label : dict[int, str] or None, default None
+        Mapping from class indices to class names
+    color : tuple[int, int, int], default (0, 255, 0)
+        RGB color for bounding boxes
+    thickness : int, default 2
+        Line thickness for bounding boxes
+
+    Returns
+    -------
+    NDArray
+        Image with bounding boxes drawn (copy of input)
+
+    Notes
+    -----
+    This function requires opencv-python (cv2) to be installed.
+    If cv2 is not available, it falls back to using PIL which provides
+    basic rectangle drawing but with less features.
+    """
+    try:
+        import cv2  # type: ignore
+    except ImportError:
+        cv2 = None
+
+    # Make a copy to avoid modifying the original
+    img_with_boxes = image.copy()
+
+    if len(boxes) == 0:
+        return img_with_boxes
+
+    # Process labels to get class indices
+    if labels is not None:
+        label_indices = np.argmax(labels, axis=1) if labels.ndim == 2 else labels.astype(int)
+    else:
+        label_indices = None
+
+    if cv2:
+        # Use OpenCV for better quality boxes with labels
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = box.astype(int)
+
+            # Draw rectangle
+            cv2.rectangle(img_with_boxes, (x1, y1), (x2, y2), color, thickness)
+
+            # Build label text
+            label_text = None
+            if label_indices is not None:
+                label_idx = label_indices[i]
+                if index2label and label_idx in index2label:
+                    label_text = index2label[label_idx]
+                else:
+                    label_text = f"Class {label_idx}"
+
+                # Add score if available
+                if scores is not None and i < len(scores):
+                    label_text += f" {scores[i]:.2f}"
+
+            # Draw label background and text
+            if label_text:
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.5
+                font_thickness = 1
+                (text_width, text_height), baseline = cv2.getTextSize(label_text, font, font_scale, font_thickness)
+
+                # Draw background rectangle
+                cv2.rectangle(
+                    img_with_boxes,
+                    (x1, y1 - text_height - baseline - 5),
+                    (x1 + text_width, y1),
+                    color,
+                    -1,  # Filled
+                )
+
+                # Draw text
+                cv2.putText(
+                    img_with_boxes,
+                    label_text,
+                    (x1, y1 - baseline - 2),
+                    font,
+                    font_scale,
+                    (255, 255, 255),  # White text
+                    font_thickness,
+                )
+    else:
+        # Fallback to PIL for basic box drawing
+        from PIL import Image, ImageDraw, ImageFont
+
+        # Convert to PIL Image
+        pil_img = Image.fromarray(img_with_boxes)
+        draw = ImageDraw.Draw(pil_img)
+
+        # Try to load a font, fallback to default if not available
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        except Exception:
+            font = ImageFont.load_default()
+
+        for i, box in enumerate(boxes):
+            x1, y1, x2, y2 = box.astype(int)
+
+            # Draw rectangle
+            draw.rectangle([x1, y1, x2, y2], outline=tuple(color), width=thickness)
+
+            # Build label text
+            label_text = None
+            if label_indices is not None:
+                label_idx = label_indices[i]
+                if index2label and label_idx in index2label:
+                    label_text = index2label[label_idx]
+                else:
+                    label_text = f"Class {label_idx}"
+
+                # Add score if available
+                if scores is not None and i < len(scores):
+                    label_text += f" {scores[i]:.2f}"
+
+            # Draw label text
+            if label_text:
+                # Draw text background
+                try:
+                    bbox = draw.textbbox((x1, y1 - 15), label_text, font=font)
+                    draw.rectangle(bbox, fill=tuple(color))
+                    draw.text((x1, y1 - 15), label_text, fill=(255, 255, 255), font=font)
+                except Exception:
+                    # Fallback for older PIL versions
+                    draw.text((x1, y1 - 15), label_text, fill=tuple(color), font=font)
+
+        # Convert back to numpy
+        img_with_boxes = np.array(pil_img)
+
+    return img_with_boxes

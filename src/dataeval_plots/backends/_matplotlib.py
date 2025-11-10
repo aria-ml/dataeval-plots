@@ -14,9 +14,12 @@ from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
     calculate_projection,
     calculate_subplot_grid,
+    draw_bounding_boxes,
+    extract_boxes_and_labels,
     format_label_from_target,
     image_to_hwc,
     merge_metadata,
+    normalize_image_to_uint8,
     normalize_reference_outputs,
     parse_dataset_item,
     prepare_balance_data,
@@ -778,9 +781,26 @@ class MatplotlibBackend(BasePlottingBackend):
             if additional_metadata is not None:
                 metadata = merge_metadata(metadata, additional_metadata[i])
 
-            # Convert image to HWC format and display
+            # Convert image to HWC format
             image_hwc = image_to_hwc(image)
-            ax.imshow(image_hwc)
+
+            # Check if we have object detection targets and should draw boxes
+            boxes, labels, scores = extract_boxes_and_labels(target)
+            if boxes is not None and len(boxes) > 0:
+                # Ensure image is uint8 for OpenCV
+                image_uint8 = normalize_image_to_uint8(image_hwc)
+                # Draw bounding boxes
+                image_with_boxes = draw_bounding_boxes(
+                    image_uint8,
+                    boxes,
+                    labels,
+                    scores,
+                    index2label,
+                )
+                ax.imshow(image_with_boxes)
+            else:
+                ax.imshow(image_hwc)
+
             ax.axis("off")
 
             # Build title from labels and metadata

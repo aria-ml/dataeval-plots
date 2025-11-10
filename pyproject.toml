@@ -35,6 +35,7 @@ dependencies = [
 seaborn = ["seaborn>=0.12"]
 plotly = ["plotly>=5.0"]
 altair = ["altair>=5.0"]
+opencv = ["opencv-python-headless>=4.12.0.88"]
 all = [
   "seaborn>=0.12",
   "plotly>=5.0",

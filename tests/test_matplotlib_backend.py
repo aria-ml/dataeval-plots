@@ -367,3 +367,36 @@ class TestMatplotlibBackend:
         # Check that titles show object counts
         assert "person" in result.axes[0].get_title()
         assert "car" in result.axes[0].get_title() or "car" in result.axes[1].get_title()
+
+    def test_plot_image_grid_with_bounding_boxes(
+        self,
+        backend: MatplotlibBackend,
+    ) -> None:
+        """Test that bounding boxes are drawn on images with object detection targets."""
+        # Create dataset with object detection targets
+        images = [np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8) for _ in range(2)]
+        targets = [
+            {
+                "boxes": np.array([[10, 10, 30, 30], [20, 20, 40, 40]]),
+                "labels": np.array([0, 1]),
+                "scores": np.array([0.9, 0.85]),
+            },
+            {
+                "boxes": np.array([[5, 5, 25, 25]]),
+                "labels": np.array([0]),
+                "scores": np.array([0.95]),
+            },
+        ]
+        dataset = MockDataset(
+            images=images,
+            targets=targets,
+            index2label={0: "cat", 1: "dog"},
+        )
+
+        indices = [0, 1]
+        # Draw without labels to test that boxes are still drawn
+        result = backend._plot_image_grid(dataset, indices, images_per_row=2)
+
+        assert isinstance(result, Figure)
+        assert len(result.axes) == 2
+        # Bounding boxes should be drawn even without show_labels=True

@@ -12,6 +12,8 @@ from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
     calculate_projection,
     calculate_subplot_grid,
+    draw_bounding_boxes,
+    extract_boxes_and_labels,
     format_label_from_target,
     image_to_hwc,
     merge_metadata,
@@ -804,11 +806,24 @@ class PlotlyBackend(BasePlottingBackend):
 
             # Get image from dataset and parse it
             datum = dataset[idx]
-            image, _, _ = parse_dataset_item(datum)
+            image, target, _ = parse_dataset_item(datum)
 
             # Convert to HWC format
             image_hwc = image_to_hwc(image)
             image_uint8 = normalize_image_to_uint8(image_hwc)
+
+            # Check if we have object detection targets and should draw boxes
+            boxes, labels, scores = extract_boxes_and_labels(target)
+            if boxes is not None and len(boxes) > 0:
+                # Draw bounding boxes
+                image_uint8 = draw_bounding_boxes(
+                    image_uint8,
+                    boxes,
+                    labels,
+                    scores,
+                    index2label,
+                )
+
             img_height, img_width = image_uint8.shape[:2]
 
             # Add image as a trace - using Image trace which auto-fills the subplot
