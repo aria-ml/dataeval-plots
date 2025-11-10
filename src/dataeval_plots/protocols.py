@@ -21,15 +21,13 @@ from datetime import datetime
 from typing import (
     Any,
     Literal,
-    NotRequired,
     Protocol,
-    Required,
     TypedDict,
     runtime_checkable,
 )
 
 from numpy.typing import NDArray
-from typing_extensions import ReadOnly
+from typing_extensions import NotRequired, ReadOnly, Required
 
 
 class ExecutionMetadata(Protocol):
