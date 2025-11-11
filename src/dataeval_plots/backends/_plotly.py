@@ -756,30 +756,19 @@ class PlotlyBackend(BasePlottingBackend):
         # Get index2label mapping if available
         index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
 
-        # Auto-detect image size from first image if figsize not specified
-        first_img_height = None
-        first_img_width = None
-        if figsize is None:
-            datum = dataset[indices[0]]
-            add_meta = additional_metadata[0] if additional_metadata is not None else None
-            first_image, _, _ = process_dataset_item_for_display(
-                datum,
-                additional_metadata=add_meta,
-                index2label=index2label,
-            )
-            first_img_height, first_img_width = first_image.shape[:2]
-
-        # Build subplot titles
+        # Process all images first to build titles and collect processed images
+        processed_images = []
         subplot_titles = []
+
         for i, idx in enumerate(indices):
-            # Get dataset item and parse it (just for title building)
             datum = dataset[idx]
             add_meta = additional_metadata[i] if additional_metadata is not None else None
-            _, target, metadata = process_dataset_item_for_display(
+            processed_image, target, metadata = process_dataset_item_for_display(
                 datum,
                 additional_metadata=add_meta,
                 index2label=index2label,
             )
+            processed_images.append(processed_image)
 
             # Build title from labels and metadata
             title_parts = []
@@ -809,20 +798,20 @@ class PlotlyBackend(BasePlottingBackend):
             vertical_spacing=0.1 if subplot_titles and any(subplot_titles) else 0.02,
         )
 
-        for i, idx in enumerate(indices):
-            row = i // images_per_row + 1
-            col = i % images_per_row + 1
+        # Calculate actual dimensions from processed images
+        max_width_per_col = [0] * images_per_row
+        max_height_per_row = [0] * num_rows
 
-            # Get dataset item and process it for display
-            datum = dataset[idx]
-            add_meta = additional_metadata[i] if additional_metadata is not None else None
-            processed_image, _, _ = process_dataset_item_for_display(
-                datum,
-                additional_metadata=add_meta,
-                index2label=index2label,
-            )
+        for i, processed_image in enumerate(processed_images):
+            row_idx = i // images_per_row
+            col_idx = i % images_per_row
 
             img_height, img_width = processed_image.shape[:2]
+            max_width_per_col[col_idx] = max(max_width_per_col[col_idx], img_width)
+            max_height_per_row[row_idx] = max(max_height_per_row[row_idx], img_height)
+
+            row = row_idx + 1
+            col = col_idx + 1
 
             # Add image as a trace - using Image trace which auto-fills the subplot
             fig.add_trace(
@@ -862,11 +851,12 @@ class PlotlyBackend(BasePlottingBackend):
             width = int(width_inches * 100)
             height = int(height_inches * 100)
         else:
-            # Auto-detect based on image dimensions with slim borders (5% padding on top/bottom per row)
+            # Auto-detect based on actual processed image dimensions with slim borders
             padding_factor = 0.05
-            single_img_height = int(first_img_height * (1 + 2 * padding_factor))
-            width = first_img_width * images_per_row
-            height = single_img_height * num_rows + 50  # Add 50 for title space
+            # Sum the maximum widths across columns
+            width = sum(max_width_per_col)
+            # Sum the maximum heights across rows, adding padding to each row
+            height = sum(int(h * (1 + 2 * padding_factor)) for h in max_height_per_row) + 50  # Add 50 for title space
 
         fig.update_layout(width=width, height=height, showlegend=False, margin={"l": 0, "r": 0, "t": 50, "b": 0})
 

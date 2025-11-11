@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
-from typing import Any, Protocol, cast, overload
+from typing import TYPE_CHECKING, Any, Protocol, cast, overload
 
+import numpy as np
 from numpy.typing import NDArray
 
 from dataeval_plots.protocols import (
@@ -17,6 +18,9 @@ from dataeval_plots.protocols import (
     PlottableSufficiency,
     PlottableType,
 )
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 
 class PlottingBackend(Protocol):
@@ -218,7 +222,6 @@ class BasePlottingBackend(PlottingBackend, ABC):
         """Plot drift MVDC output."""
         ...
 
-    @abstractmethod
     def _plot_image_grid(
         self,
         dataset: Dataset,
@@ -228,6 +231,119 @@ class BasePlottingBackend(PlottingBackend, ABC):
         show_labels: bool = False,
         show_metadata: bool = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
-    ) -> Any:
-        """Plot image grid - to be implemented by each backend."""
-        ...
+    ) -> Figure:
+        """
+        Plot a grid of images from a dataset.
+
+        This is a common implementation used by matplotlib and seaborn backends.
+        Subclasses can override this method to provide custom styling.
+
+        Parameters
+        ----------
+        dataset : Dataset
+            MAITE-compatible dataset containing images
+        indices : Sequence[int]
+            Indices of images to plot from the dataset
+        images_per_row : int, default 3
+            Number of images to display per row
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height)
+        show_labels : bool, default False
+            Whether to display labels extracted from targets
+        show_metadata : bool, default False
+            Whether to display metadata from the dataset items
+        additional_metadata : Sequence[dict[str, Any]] or None, default None
+            Additional metadata to display for each image (must match length of indices)
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+
+        Raises
+        ------
+        ValueError
+            If additional_metadata length doesn't match indices length
+        """
+        import matplotlib.pyplot as plt
+
+        from dataeval_plots.backends._shared import (
+            format_label_from_target,
+            process_dataset_item_for_display,
+        )
+
+        # Validate additional_metadata length
+        if additional_metadata is not None and len(additional_metadata) != len(indices):
+            raise ValueError(
+                f"additional_metadata length ({len(additional_metadata)}) must match indices length ({len(indices)})"
+            )
+
+        num_images = len(indices)
+        num_rows = (num_images + images_per_row - 1) // images_per_row
+
+        # Get index2label mapping if available
+        index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
+
+        # Auto-detect figsize if not provided
+        if figsize is None:
+            # Get first image to determine dimensions
+            datum = dataset[indices[0]]
+            add_meta = additional_metadata[0] if additional_metadata is not None else None
+            first_image, _, _ = process_dataset_item_for_display(
+                datum,
+                additional_metadata=add_meta,
+                index2label=index2label,
+            )
+            img_height, img_width = first_image.shape[:2]
+
+            # Convert to inches (assuming 100 pixels per inch as default DPI)
+            # Add slim borders (5% padding on top/bottom)
+            padding_factor = 0.05
+            single_img_width = img_width / 100
+            single_img_height = img_height / 100 * (1 + 2 * padding_factor)
+            # Use max to ensure minimum size of 1 inch to avoid singular matrix errors
+            figsize = (
+                max(1, int(single_img_width * images_per_row)),
+                max(1, int(single_img_height * num_rows)),
+            )
+
+        fig, axes = plt.subplots(num_rows, images_per_row, figsize=figsize, squeeze=False)
+
+        # Flatten axes array for easier iteration
+        axes_flat = np.asarray(axes).flatten()
+
+        for i, ax in enumerate(axes_flat):
+            if i >= num_images:
+                ax.set_visible(False)
+                continue
+
+            # Get dataset item and process it for display
+            datum = dataset[indices[i]]
+            add_meta = additional_metadata[i] if additional_metadata is not None else None
+            processed_image, target, metadata = process_dataset_item_for_display(
+                datum,
+                additional_metadata=add_meta,
+                index2label=index2label,
+            )
+
+            ax.imshow(processed_image)
+            ax.axis("off")
+
+            # Build title from labels and metadata
+            title_parts = []
+
+            if show_labels and target is not None:
+                label_str = format_label_from_target(target, index2label)
+                if label_str:
+                    title_parts.append(label_str)
+
+            if show_metadata and metadata:
+                # Format metadata as key: value pairs
+                metadata_strs = [f"{k}: {v}" for k, v in metadata.items()]
+                title_parts.extend(metadata_strs)
+
+            # Set title if we have any parts
+            if title_parts:
+                ax.set_title("\n".join(title_parts), fontsize=8, pad=3)
+
+        plt.tight_layout()
+        return fig

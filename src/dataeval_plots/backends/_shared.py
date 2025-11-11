@@ -23,6 +23,7 @@ __all__ = [
     "prepare_balance_data",
     "prepare_diversity_data",
     "prepare_drift_data",
+    "plot_drift_on_axis",
     "normalize_image_to_uint8",
     "image_to_base64_png",
     "image_to_hwc",
@@ -289,6 +290,162 @@ def prepare_drift_data(
     driftx = np.where(resdf["domain_classifier_auroc"]["alert"].values)[0]  # type: ignore
 
     return resdf, trndf, tstdf, driftx, True
+
+
+def plot_drift_on_axis(
+    ax: Any,
+    resdf: Any,
+    trndf: Any,
+    tstdf: Any,
+    driftx: NDArray[Any],
+    threshold_upper_color: str = "red",
+    threshold_lower_color: str = "red",
+    train_color: Any = "b",
+    test_color: Any = "g",
+    drift_color: str = "magenta",
+    threshold_upper_label: str = "Threshold Upper",
+    threshold_lower_label: str = "Threshold Lower",
+    train_label: str = "Train",
+    test_label: str = "Test",
+    drift_label: str = "Drift",
+    drift_marker: str = "D",
+    drift_markersize: int = 3,
+    threshold_linestyle: str = "--",
+    train_linestyle: str = "-",
+    test_linestyle: str = "-",
+    linewidth: int = 2,
+    title: str = "Domain Classifier, Drift Detection",
+    xlabel: str = "Chunk Index",
+    ylabel: str = "ROC AUC",
+    title_fontsize: int = 12,
+    label_fontsize: int = 10,
+    tick_fontsize: int = 8,
+    legend_fontsize: int = 8,
+    legend_loc: str = "lower left",
+) -> None:
+    """
+    Plot drift detection data on a matplotlib axis.
+
+    This is a shared helper function that plots drift detection data with customizable styling.
+    Used by both matplotlib and seaborn backends with different styling parameters.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axis to plot on
+    resdf : DataFrame
+        Full results dataframe
+    trndf : DataFrame
+        Training/reference data
+    tstdf : DataFrame
+        Test/analysis data
+    driftx : NDArray
+        Indices where drift was detected
+    threshold_upper_color : str, default "red"
+        Color for upper threshold line
+    threshold_lower_color : str, default "red"
+        Color for lower threshold line
+    train_color : Any, default "b"
+        Color for training data line (can be string or RGB tuple)
+    test_color : Any, default "g"
+        Color for test data line (can be string or RGB tuple)
+    drift_color : str, default "magenta"
+        Color for drift markers
+    threshold_upper_label : str, default "Threshold Upper"
+        Label for upper threshold
+    threshold_lower_label : str, default "Threshold Lower"
+        Label for lower threshold
+    train_label : str, default "Train"
+        Label for training data
+    test_label : str, default "Test"
+        Label for test data
+    drift_label : str, default "Drift"
+        Label for drift markers
+    drift_marker : str, default "D"
+        Marker style for drift points
+    drift_markersize : int, default 3
+        Size of drift markers
+    threshold_linestyle : str, default "--"
+        Line style for thresholds
+    train_linestyle : str, default "-"
+        Line style for training data
+    test_linestyle : str, default "-"
+        Line style for test data
+    linewidth : int, default 2
+        Width of lines
+    title : str, default "Domain Classifier, Drift Detection"
+        Plot title
+    xlabel : str, default "Chunk Index"
+        X-axis label
+    ylabel : str, default "ROC AUC"
+        Y-axis label
+    title_fontsize : int, default 12
+        Font size for title
+    label_fontsize : int, default 10
+        Font size for axis labels
+    tick_fontsize : int, default 8
+        Font size for tick labels
+    legend_fontsize : int, default 8
+        Font size for legend
+    legend_loc : str, default "lower left"
+        Location of legend
+    """
+    # Plot threshold lines
+    ax.plot(
+        resdf.index,
+        resdf["domain_classifier_auroc"]["upper_threshold"],
+        threshold_linestyle,
+        color=threshold_upper_color,
+        label=threshold_upper_label,
+        linewidth=linewidth,
+    )
+    ax.plot(
+        resdf.index,
+        resdf["domain_classifier_auroc"]["lower_threshold"],
+        threshold_linestyle,
+        color=threshold_lower_color,
+        label=threshold_lower_label,
+        linewidth=linewidth,
+    )
+
+    # Plot train and test data
+    ax.plot(
+        trndf.index,
+        trndf["domain_classifier_auroc"]["value"],
+        train_linestyle,
+        color=train_color,
+        label=train_label,
+        linewidth=linewidth,
+    )
+    ax.plot(
+        tstdf.index,
+        tstdf["domain_classifier_auroc"]["value"],
+        test_linestyle,
+        color=test_color,
+        label=test_label,
+        linewidth=linewidth,
+    )
+
+    # Plot drift points
+    ax.plot(
+        resdf.index.values[driftx],  # type: ignore
+        resdf["domain_classifier_auroc"]["value"].values[driftx],  # type: ignore
+        drift_marker,
+        color=drift_color,
+        markersize=drift_markersize,
+        label=drift_label,
+    )
+
+    # Set ticks and labels
+    xticks = np.arange(resdf.shape[0])
+    ax.set_xticks(xticks)
+    ax.tick_params(axis="x", labelsize=tick_fontsize)
+    ax.tick_params(axis="y", labelsize=tick_fontsize)
+    ax.legend(loc=legend_loc, fontsize=legend_fontsize, frameon=True)
+    ax.set_title(title, fontsize=title_fontsize, pad=15)
+    ax.set_ylabel(ylabel, fontsize=label_fontsize)
+    ax.set_xlabel(xlabel, fontsize=label_fontsize)
+    ax.set_ylim((0.0, 1.1))
 
 
 def normalize_image_to_uint8(img_np: NDArray[Any]) -> NDArray[Any]:

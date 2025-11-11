@@ -14,17 +14,15 @@ from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
     calculate_projection,
     calculate_subplot_grid,
-    format_label_from_target,
     normalize_reference_outputs,
+    plot_drift_on_axis,
     prepare_balance_data,
     prepare_diversity_data,
     prepare_drift_data,
-    process_dataset_item_for_display,
     project_steps,
     validate_class_names,
 )
 from dataeval_plots.protocols import (
-    Dataset,
     PlottableBalance,
     PlottableDiversity,
     PlottableDriftMVDC,
@@ -673,129 +671,36 @@ class MatplotlibBackend(BasePlottingBackend):
         matplotlib.figure.Figure
         """
         import matplotlib.pyplot as plt
-        import numpy as np
 
         # Use shared helper to prepare drift data
         resdf, trndf, tstdf, driftx, is_sufficient = prepare_drift_data(output)
 
         fig, ax = plt.subplots(dpi=300, figsize=figsize)
-        xticks = np.arange(resdf.shape[0])
 
         if is_sufficient and np.size(driftx) > 2:
-            ax.plot(resdf.index, resdf["domain_classifier_auroc"]["upper_threshold"], "r--", label="thr_up")
-            ax.plot(resdf.index, resdf["domain_classifier_auroc"]["lower_threshold"], "r--", label="thr_low")
-            ax.plot(trndf.index, trndf["domain_classifier_auroc"]["value"], "b", label="train")
-            ax.plot(tstdf.index, tstdf["domain_classifier_auroc"]["value"], "g", label="test")
-            ax.plot(
-                resdf.index.values[driftx],  # type: ignore
-                resdf["domain_classifier_auroc"]["value"].values[driftx],  # type: ignore
-                "dm",
-                markersize=3,
-                label="drift",
+            # Use shared plotting helper with matplotlib-specific styling
+            plot_drift_on_axis(
+                ax,
+                resdf,
+                trndf,
+                tstdf,
+                driftx,
+                threshold_upper_color="red",
+                threshold_lower_color="red",
+                train_color="b",
+                test_color="g",
+                drift_color="m",
+                threshold_upper_label="thr_up",
+                threshold_lower_label="thr_low",
+                train_label="train",
+                test_label="test",
+                drift_label="drift",
+                drift_marker="d",
+                drift_markersize=3,
+                linewidth=1,
+                title_fontsize=8,
+                label_fontsize=7,
+                tick_fontsize=6,
+                legend_fontsize=6,
             )
-            ax.set_xticks(xticks)
-            ax.tick_params(axis="x", labelsize=6)
-            ax.tick_params(axis="y", labelsize=6)
-            ax.legend(loc="lower left", fontsize=6)
-            ax.set_title("Domain Classifier, Drift Detection", fontsize=8)
-            ax.set_ylabel("ROC AUC", fontsize=7)
-            ax.set_xlabel("Chunk Index", fontsize=7)
-            ax.set_ylim((0.0, 1.1))
-        return fig
-
-    def _plot_image_grid(
-        self,
-        dataset: Dataset,
-        indices: Sequence[int],
-        images_per_row: int = 3,
-        figsize: tuple[int, int] | None = None,
-        show_labels: bool = False,
-        show_metadata: bool = False,
-        additional_metadata: Sequence[dict[str, Any]] | None = None,
-    ) -> Figure:
-        """
-        Plot a grid of images from a dataset.
-
-        Parameters
-        ----------
-        dataset : Dataset
-            MAITE-compatible dataset containing images
-        indices : Sequence[int]
-            Indices of images to plot from the dataset
-        images_per_row : int, default 3
-            Number of images to display per row
-        figsize : tuple[int, int], default (10, 10)
-            Figure size in inches (width, height)
-        show_labels : bool, default False
-            Whether to display labels extracted from targets
-        show_metadata : bool, default False
-            Whether to display metadata from the dataset items
-        additional_metadata : Sequence[dict[str, Any]] or None, default None
-            Additional metadata to display for each image (must match length of indices)
-
-        Returns
-        -------
-        matplotlib.figure.Figure
-
-        Raises
-        ------
-        ValueError
-            If additional_metadata length doesn't match indices length
-        """
-        import matplotlib.pyplot as plt
-
-        # Validate additional_metadata length
-        if additional_metadata is not None and len(additional_metadata) != len(indices):
-            raise ValueError(
-                f"additional_metadata length ({len(additional_metadata)}) must match indices length ({len(indices)})"
-            )
-
-        num_images = len(indices)
-        num_rows = (num_images + images_per_row - 1) // images_per_row
-
-        if figsize is None:
-            figsize = (10, 10)
-        fig, axes = plt.subplots(num_rows, images_per_row, figsize=figsize)
-
-        # Flatten axes array for easier iteration
-        axes_flat = np.asarray(axes).flatten()
-
-        # Get index2label mapping if available
-        index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
-
-        for i, ax in enumerate(axes_flat):
-            if i >= num_images:
-                ax.set_visible(False)
-                continue
-
-            # Get dataset item and process it for display
-            datum = dataset[indices[i]]
-            add_meta = additional_metadata[i] if additional_metadata is not None else None
-            processed_image, target, metadata = process_dataset_item_for_display(
-                datum,
-                additional_metadata=add_meta,
-                index2label=index2label,
-            )
-
-            ax.imshow(processed_image)
-            ax.axis("off")
-
-            # Build title from labels and metadata
-            title_parts = []
-
-            if show_labels and target is not None:
-                label_str = format_label_from_target(target, index2label)
-                if label_str:
-                    title_parts.append(label_str)
-
-            if show_metadata and metadata:
-                # Format metadata as key: value pairs
-                metadata_strs = [f"{k}: {v}" for k, v in metadata.items()]
-                title_parts.extend(metadata_strs)
-
-            # Set title if we have any parts
-            if title_parts:
-                ax.set_title("\n".join(title_parts), fontsize=8, pad=3)
-
-        plt.tight_layout()
         return fig

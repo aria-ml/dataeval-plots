@@ -10,14 +10,12 @@ from numpy.typing import NDArray
 from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
-    format_label_from_target,
+    plot_drift_on_axis,
     prepare_balance_data,
     prepare_diversity_data,
     prepare_drift_data,
-    process_dataset_item_for_display,
 )
 from dataeval_plots.protocols import (
-    Dataset,
     PlottableBalance,
     PlottableDiversity,
     PlottableDriftMVDC,
@@ -395,164 +393,36 @@ class SeabornBackend(BasePlottingBackend):
             )
             return fig
 
-        xticks = np.arange(resdf.shape[0])
-
-        if is_sufficient and np.size(driftx) > 2:
-            # Use seaborn color palette
+        if np.size(driftx) > 2:
+            # Use seaborn color palette for train/test colors
             colors = sns.color_palette("husl", 4)
 
-            ax.plot(
-                resdf.index,
-                resdf["domain_classifier_auroc"]["upper_threshold"],
-                "--",
-                color="red",
-                label="Threshold Upper",
+            # Use shared plotting helper with seaborn-specific styling
+            plot_drift_on_axis(
+                ax,
+                resdf,
+                trndf,
+                tstdf,
+                driftx,
+                threshold_upper_color="red",
+                threshold_lower_color="red",
+                train_color=colors[0],
+                test_color=colors[1],
+                drift_color="magenta",
+                threshold_upper_label="Threshold Upper",
+                threshold_lower_label="Threshold Lower",
+                train_label="Train",
+                test_label="Test",
+                drift_label="Drift",
+                drift_marker="D",
+                drift_markersize=6,
                 linewidth=2,
+                title_fontsize=12,
+                label_fontsize=10,
+                tick_fontsize=8,
+                legend_fontsize=8,
             )
-            ax.plot(
-                resdf.index,
-                resdf["domain_classifier_auroc"]["lower_threshold"],
-                "--",
-                color="red",
-                label="Threshold Lower",
-                linewidth=2,
-            )
-            ax.plot(
-                trndf.index,
-                trndf["domain_classifier_auroc"]["value"],
-                "-",
-                color=colors[0],
-                label="Train",
-                linewidth=2,
-            )
-            ax.plot(
-                tstdf.index,
-                tstdf["domain_classifier_auroc"]["value"],
-                "-",
-                color=colors[1],
-                label="Test",
-                linewidth=2,
-            )
-            ax.plot(
-                resdf.index.values[driftx],  # type: ignore
-                resdf["domain_classifier_auroc"]["value"].values[driftx],  # type: ignore
-                "D",
-                color="magenta",
-                markersize=6,
-                label="Drift",
-            )
-
-            ax.set_xticks(xticks)
-            ax.tick_params(axis="x", labelsize=8)
-            ax.tick_params(axis="y", labelsize=8)
-            ax.legend(loc="lower left", fontsize=8, frameon=True)
-            ax.set_title("Domain Classifier, Drift Detection", fontsize=12, pad=15)
-            ax.set_ylabel("ROC AUC", fontsize=10)
-            ax.set_xlabel("Chunk Index", fontsize=10)
-            ax.set_ylim((0.0, 1.1))
             sns.despine(ax=ax)
 
         fig.tight_layout()
-        return fig
-
-    def _plot_image_grid(
-        self,
-        dataset: Dataset,
-        indices: Sequence[int],
-        images_per_row: int = 3,
-        figsize: tuple[int, int] | None = None,
-        show_labels: bool = False,
-        show_metadata: bool = False,
-        additional_metadata: Sequence[dict[str, Any]] | None = None,
-    ) -> Figure:
-        """
-        Plot a grid of images from a dataset with Seaborn styling.
-
-        Parameters
-        ----------
-        dataset : Dataset
-            MAITE-compatible dataset containing images
-        indices : Sequence[int]
-            Indices of images to plot from the dataset
-        images_per_row : int, default 3
-            Number of images to display per row
-        figsize : tuple[int, int] or None, default None
-            Figure size in inches (width, height)
-        show_labels : bool, default False
-            Whether to display labels extracted from targets
-        show_metadata : bool, default False
-            Whether to display metadata from the dataset items
-        additional_metadata : Sequence[dict[str, Any]] or None, default None
-            Additional metadata to display for each image (must match length of indices)
-
-        Returns
-        -------
-        matplotlib.figure.Figure
-
-        Raises
-        ------
-        ValueError
-            If additional_metadata length doesn't match indices length
-        """
-        import matplotlib.pyplot as plt
-        import numpy as np
-        import seaborn as sns
-
-        # Validate additional_metadata length
-        if additional_metadata is not None and len(additional_metadata) != len(indices):
-            raise ValueError(
-                f"additional_metadata length ({len(additional_metadata)}) must match indices length ({len(indices)})"
-            )
-
-        # Set seaborn style for consistent appearance
-        sns.set_style("whitegrid")
-
-        num_images = len(indices)
-        num_rows = (num_images + images_per_row - 1) // images_per_row
-
-        if figsize is None:
-            figsize = (10, 10)
-        fig, axes = plt.subplots(num_rows, images_per_row, figsize=figsize)
-
-        # Flatten axes array for easier iteration
-        axes_flat = np.asarray(axes).flatten()
-
-        # Get index2label mapping if available
-        index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
-
-        for i, ax in enumerate(axes_flat):
-            if i >= num_images:
-                ax.set_visible(False)
-                continue
-
-            # Get dataset item and process it for display
-            datum = dataset[indices[i]]
-            add_meta = additional_metadata[i] if additional_metadata is not None else None
-            processed_image, target, metadata = process_dataset_item_for_display(
-                datum,
-                additional_metadata=add_meta,
-                index2label=index2label,
-            )
-
-            ax.imshow(processed_image)
-            ax.axis("off")
-
-            # Build title from labels and metadata
-            title_parts = []
-
-            if show_labels and target is not None:
-                label_str = format_label_from_target(target, index2label)
-                if label_str:
-                    title_parts.append(label_str)
-
-            if show_metadata and metadata:
-                # Format metadata as key: value pairs
-                metadata_strs = [f"{k}: {v}" for k, v in metadata.items()]
-                title_parts.extend(metadata_strs)
-
-            # Set title if we have any parts
-            if title_parts:
-                ax.set_title("\n".join(title_parts), fontsize=8, pad=3)
-
-        plt.tight_layout()
         return fig
