@@ -108,7 +108,10 @@ class PlotlyBackend(BasePlottingBackend):
                 text=text,
                 texttemplate="%{text}",
                 textfont={"size": 10},
-                colorbar={"title": {"text": "Normalized Mutual Information", "side": "right"}},
+                colorbar={
+                    "title": {"text": "Normalized Mutual Information", "side": "right"},
+                    "outlinewidth": 0,
+                },
                 hovertext=hovertext,
                 hoverinfo="text",
             )
@@ -186,10 +189,8 @@ class PlotlyBackend(BasePlottingBackend):
                     texttemplate="%{text}",
                     textfont={"size": 10},
                     colorbar={
-                        "title": {
-                            "text": f"Normalized {method_name} Index",
-                            "side": "right",
-                        }
+                        "title": {"text": f"Normalized {method_name} Index", "side": "right"},
+                        "outlinewidth": 0,
                     },
                     hovertemplate="Row: %{y}<br>Col: %{x}<br>Value: %{z:.2f}<extra></extra>",
                 )
@@ -214,16 +215,19 @@ class PlotlyBackend(BasePlottingBackend):
             )
         else:
             # Bar chart for diversity indices
+            # DataFrame-based: get diversity values from factors DataFrame
+            diversity_values = output.factors["diversity_value"].to_list()
+
             fig = go.Figure(
                 data=go.Bar(
                     x=row_labels,
-                    y=output.diversity_index,
+                    y=diversity_values,
                     marker={
-                        "color": output.diversity_index,
+                        "color": diversity_values,
                         "colorscale": "Viridis",
                         "showscale": True,
                     },
-                    text=[f"{val:.3f}" for val in output.diversity_index],
+                    text=[f"{val:.3f}" for val in diversity_values],
                     textposition="outside",
                     hovertemplate="Factor: %{x}<br>Diversity: %{y:.3f}<extra></extra>",
                 )

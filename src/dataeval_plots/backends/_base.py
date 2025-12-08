@@ -149,7 +149,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
         if isinstance(output, Dataset):
             return self._plot_image_grid(cast(Dataset, output), figsize=figsize, **kwargs)
 
-        plot_type = output.plot_type()
+        plot_type = output.plot_type if isinstance(output.plot_type, str) else output.plot_type()
 
         if plot_type == "balance":
             return self._plot_balance(cast(PlottableBalance, output), figsize=figsize, **kwargs)

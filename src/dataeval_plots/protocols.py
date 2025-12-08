@@ -26,6 +26,7 @@ from typing import (
     runtime_checkable,
 )
 
+import polars as pl
 from numpy.typing import NDArray
 from typing_extensions import NotRequired, ReadOnly, Required
 
@@ -117,6 +118,7 @@ class Plottable(Protocol):
     2. A meta() method that returns execution metadata (optional but recommended)
     """
 
+    @property
     def plot_type(self) -> Literal["balance", "diversity", "sufficiency", "stats", "drift_mvdc"]:
         """Return the plot type identifier for routing to appropriate plot function.
 
@@ -143,28 +145,25 @@ class PlottableBalance(Plottable, Protocol):
     """Protocol for balance plot outputs.
 
     Required attributes:
-    - class_names: Names of classes
-    - factor_names: Names of factors
-    - classwise: Per-class balance matrix
-    - balance: Overall balance scores
-    - factors: Factor correlation matrix
-    - plot_type() -> 'balance'
+    - balance: Global class-to-factor MI values (DataFrame)
+    - factors: Factor correlation data (DataFrame)
+    - classwise: Per-class balance data (DataFrame)
+    - plot_type -> 'balance'
+
+    DataFrame structures:
+    - balance DataFrame columns: factor_name, mi_value
+    - factors DataFrame columns: factor1, factor2, mi_value, is_correlated
+    - classwise DataFrame columns: class_name, factor_name, mi_value, is_imbalanced
     """
 
     @property
-    def class_names(self) -> Sequence[str]: ...
+    def balance(self) -> pl.DataFrame: ...
     @property
-    def factor_names(self) -> Sequence[str]: ...
+    def factors(self) -> pl.DataFrame: ...
     @property
-    def classwise(self) -> NDArray[Any]: ...
+    def classwise(self) -> pl.DataFrame: ...
     @property
-    def balance(self) -> NDArray[Any]: ...
-    @property
-    def factors(self) -> NDArray[Any]: ...
-
-    def plot_type(self) -> Literal["balance"]:
-        """Return 'balance' as the plot type."""
-        ...
+    def plot_type(self) -> Literal["balance"]: ...
 
 
 @runtime_checkable
@@ -172,25 +171,21 @@ class PlottableDiversity(Plottable, Protocol):
     """Protocol for diversity plot outputs.
 
     Required attributes:
-    - class_names: Names of classes
-    - factor_names: Names of factors
-    - classwise: Per-class diversity matrix
-    - diversity_index: Overall diversity indices
-    - plot_type() -> 'diversity'
+    - factors: Factor-level diversity data (DataFrame)
+    - classwise: Per-class diversity data (DataFrame)
+    - plot_type -> 'diversity'
+
+    DataFrame structures:
+    - factors DataFrame columns: factor_name, diversity_value, is_low_diversity
+    - classwise DataFrame columns: class_name, factor_name, diversity_value, is_low_diversity
     """
 
     @property
-    def class_names(self) -> Sequence[str]: ...
+    def factors(self) -> pl.DataFrame: ...
     @property
-    def factor_names(self) -> Sequence[str]: ...
+    def classwise(self) -> pl.DataFrame: ...
     @property
-    def classwise(self) -> NDArray[Any]: ...
-    @property
-    def diversity_index(self) -> NDArray[Any]: ...
-
-    def plot_type(self) -> Literal["diversity"]:
-        """Return 'diversity' as the plot type."""
-        ...
+    def plot_type(self) -> Literal["diversity"]: ...
 
 
 @runtime_checkable
@@ -213,10 +208,8 @@ class PlottableSufficiency(Plottable, Protocol):
     def measures(self) -> Mapping[str, NDArray[Any]]: ...
     @property
     def params(self) -> Mapping[str, NDArray[Any]]: ...
-
-    def plot_type(self) -> Literal["sufficiency"]:
-        """Return 'sufficiency' as the plot type."""
-        ...
+    @property
+    def plot_type(self) -> Literal["sufficiency"]: ...
 
 
 @runtime_checkable
@@ -265,9 +258,8 @@ class PlottableStats(Plottable, Protocol):
         """
         ...
 
-    def plot_type(self) -> Literal["stats"]:
-        """Return 'stats' as the plot type."""
-        ...
+    @property
+    def plot_type(self) -> Literal["stats"]: ...
 
 
 @runtime_checkable
@@ -290,9 +282,8 @@ class PlottableDriftMVDC(Plottable, Protocol):
         """
         ...
 
-    def plot_type(self) -> Literal["drift_mvdc"]:
-        """Return 'drift_mvdc' as the plot type."""
-        ...
+    @property
+    def plot_type(self) -> Literal["drift_mvdc"]: ...
 
 
 # Type alias for all plottable types

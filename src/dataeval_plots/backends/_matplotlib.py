@@ -378,7 +378,11 @@ class MatplotlibBackend(BasePlottingBackend):
             if figsize is None:
                 figsize = (8, 8)
             fig, ax = plt.subplots(figsize=figsize)
-            ax.bar(row_labels, output.diversity_index)
+
+            # DataFrame-based: get diversity values from factors DataFrame
+            diversity_values = output.factors["diversity_value"].to_list()
+            ax.bar(row_labels, diversity_values)
+
             ax.set_xlabel(xlabel)
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
             fig.tight_layout()

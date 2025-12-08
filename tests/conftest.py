@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
+import polars as pl
 import pytest
 from numpy.typing import NDArray
 
@@ -15,6 +16,11 @@ class MockExecutionMetadata:
     """Mock execution metadata."""
 
     arguments: dict[str, Any]
+    state: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.state is None:
+            self.state = {}
 
     def __getitem__(self, key: str) -> Any:
         return self.arguments[key]
@@ -24,12 +30,11 @@ class MockExecutionMetadata:
 class MockPlottableBalance:
     """Mock balance output for testing."""
 
-    class_names: list[str]
-    factor_names: list[str]
-    classwise: NDArray[np.float64]
-    balance: NDArray[np.float64]
-    factors: NDArray[np.float64]
+    balance: pl.DataFrame
+    factors: pl.DataFrame
+    classwise: pl.DataFrame
 
+    @property
     def plot_type(self) -> Literal["balance"]:
         return "balance"
 
@@ -41,16 +46,15 @@ class MockPlottableBalance:
 class MockPlottableDiversity:
     """Mock diversity output for testing."""
 
-    class_names: list[str]
-    factor_names: list[str]
-    classwise: NDArray[np.float64]
-    diversity_index: NDArray[np.float64]
+    factors: pl.DataFrame
+    classwise: pl.DataFrame
 
+    @property
     def plot_type(self) -> Literal["diversity"]:
         return "diversity"
 
     def meta(self) -> MockExecutionMetadata:
-        return MockExecutionMetadata(arguments={"method": "shannon"})
+        return MockExecutionMetadata(arguments={}, state={"method": "shannon"})
 
 
 @dataclass
@@ -146,37 +150,89 @@ class MockDataset:
 @pytest.fixture
 def mock_balance() -> MockPlottableBalance:
     """Create mock balance output."""
-    n_classes = 3
     n_factors = 5
+    class_names = ["class_0", "class_1", "class_2"]
+    factor_names = ["factor_0", "factor_1", "factor_2", "factor_3", "factor_4"]
 
-    # Working backwards from the expected result:
-    # - Final display is (n_factors-1) x (n_factors-1) with labels factor_names[:-1] x factor_names[1:]
-    # - Before [:-1] slice: (n_factors) x (n_factors-1)
-    # - This comes from concat of balance[np.newaxis, 1:] and factors
-    # - So balance[1:] must have (n_factors-1) elements -> balance has n_factors elements
-    # - And factors must be (n_factors-1) x (n_factors-1)
-    # - The last row that gets dropped by [:-1] is from the last row of factors
+    # Create balance DataFrame: factor_name, mi_value
+    # Include "class_label" plus all factors
+    balance_df = pl.DataFrame(
+        {
+            "factor_name": ["class_label"] + factor_names,
+            "mi_value": np.random.rand(n_factors + 1),
+        }
+    )
+
+    # Create factors DataFrame: factor1, factor2, mi_value, is_correlated
+    # Generate all pairwise combinations
+    factor_pairs = []
+    for i, f1 in enumerate(factor_names):
+        for j, f2 in enumerate(factor_names):
+            if i < j:  # Only upper triangle
+                factor_pairs.append(
+                    {
+                        "factor1": f1,
+                        "factor2": f2,
+                        "mi_value": np.random.rand(),
+                        "is_correlated": np.random.rand() > 0.5,
+                    }
+                )
+    factors_df = pl.DataFrame(factor_pairs)
+
+    # Create classwise DataFrame: class_name, factor_name, mi_value, is_imbalanced
+    classwise_data = []
+    for class_name in class_names:
+        for factor_name in factor_names:
+            classwise_data.append(
+                {
+                    "class_name": class_name,
+                    "factor_name": factor_name,
+                    "mi_value": np.random.rand(),
+                    "is_imbalanced": np.random.rand() > 0.5,
+                }
+            )
+    classwise_df = pl.DataFrame(classwise_data)
+
     return MockPlottableBalance(
-        class_names=["class_0", "class_1", "class_2"],
-        factor_names=["factor_0", "factor_1", "factor_2", "factor_3", "factor_4"],
-        classwise=np.random.rand(n_classes, n_factors),
-        balance=np.random.rand(n_factors),  # n_factors elements, balance[1:] gives n_factors-1
-        factors=np.random.rand(n_factors - 1, n_factors - 1),  # (4, 4)
+        balance=balance_df,
+        factors=factors_df,
+        classwise=classwise_df,
     )
 
 
 @pytest.fixture
 def mock_diversity() -> MockPlottableDiversity:
     """Create mock diversity output."""
-    n_classes = 3
     n_factors = 4
+    class_names = ["class_0", "class_1", "class_2"]
+    factor_names = ["factor_0", "factor_1", "factor_2", "factor_3"]
 
-    # diversity_index needs one extra element for "class_labels"
+    # Create factors DataFrame: factor_name, diversity_value, is_low_diversity
+    factors_df = pl.DataFrame(
+        {
+            "factor_name": factor_names,
+            "diversity_value": np.random.rand(n_factors),
+            "is_low_diversity": [np.random.rand() > 0.5 for _ in range(n_factors)],
+        }
+    )
+
+    # Create classwise DataFrame: class_name, factor_name, diversity_value, is_low_diversity
+    classwise_data = []
+    for class_name in class_names:
+        for factor_name in factor_names:
+            classwise_data.append(
+                {
+                    "class_name": class_name,
+                    "factor_name": factor_name,
+                    "diversity_value": np.random.rand(),
+                    "is_low_diversity": np.random.rand() > 0.5,
+                }
+            )
+    classwise_df = pl.DataFrame(classwise_data)
+
     return MockPlottableDiversity(
-        class_names=["class_0", "class_1", "class_2"],
-        factor_names=["factor_0", "factor_1", "factor_2", "factor_3"],
-        classwise=np.random.rand(n_classes, n_factors),
-        diversity_index=np.random.rand(n_factors + 1),
+        factors=factors_df,
+        classwise=classwise_df,
     )
 
 

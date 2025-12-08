@@ -158,7 +158,9 @@ class SeabornBackend(BasePlottingBackend):
 
         else:
             # Bar chart for diversity indices
-            df = pd.DataFrame({"factor": row_labels, "diversity": output.diversity_index})
+            # DataFrame-based: get diversity values from factors DataFrame
+            diversity_values = output.factors["diversity_value"].to_list()
+            df = pd.DataFrame({"factor": row_labels, "diversity": diversity_values})
 
             if figsize is None:
                 figsize = (10, 8)

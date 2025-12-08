@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import polars as pl
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
@@ -165,32 +166,62 @@ def prepare_balance_data(
         (data, row_labels, col_labels, xlabel, ylabel, title)
     """
     if plot_classwise:
-        if row_labels is None:
-            row_labels = output.class_names
-        if col_labels is None:
-            col_labels = output.factor_names
+        # DataFrame-based output
+        class_names = output.classwise["class_name"].unique(maintain_order=True).to_list()
+        factor_names = output.classwise["factor_name"].unique(maintain_order=True).to_list()
 
-        data = output.classwise
+        # Pivot to matrix format
+        classwise_pivoted = output.classwise.pivot(on="factor_name", index="class_name", values="mi_value")
+        data = classwise_pivoted.select(classwise_pivoted.columns[1:]).to_numpy()
+
+        if row_labels is None:
+            row_labels = class_names
+        if col_labels is None:
+            col_labels = factor_names
+
         xlabel = "Factors"
         ylabel = "Class"
         title = "Classwise Balance"
     else:
-        # Combine balance and factors results
-        data = np.concatenate(
-            [
-                output.balance[np.newaxis, 1:],
-                output.factors,
-            ],
-            axis=0,
-        )
-        # Create a mask for the upper triangle
-        mask = np.triu(data + 1, k=0) < 1
-        data = np.where(mask, np.nan, data)[:-1]
+        # DataFrame-based output
+        # Get factor names (excluding 'class_label' from balance DataFrame)
+        balance_factors = output.balance.filter(pl.col("factor_name") != "class_label")
+        factor_names = balance_factors["factor_name"].to_list()
+
+        # Extract class-to-factor MI values (first row of heatmap)
+        class_to_factor_mi = balance_factors["mi_value"].to_numpy()
+
+        # Build inter-factor correlation matrix
+        n_factors = len(factor_names)
+        factor_matrix = np.zeros((n_factors, n_factors))
+        factor_to_idx = {f: i for i, f in enumerate(factor_names)}
+
+        # Fill matrix with inter-factor MI values
+        for row in output.factors.iter_rows(named=True):
+            if row["factor1"] in factor_to_idx and row["factor2"] in factor_to_idx:
+                i = factor_to_idx[row["factor1"]]
+                j = factor_to_idx[row["factor2"]]
+                factor_matrix[i, j] = row["mi_value"]
+                factor_matrix[j, i] = row["mi_value"]
+
+        # Set diagonal to 1 (self-correlation)
+        np.fill_diagonal(factor_matrix, 1.0)
+
+        # Combine: first row = class-to-factor MI, rest = inter-factor correlations
+        # Shape: (n_factors+1, n_factors) where row 0 is class-to-factor
+        combined = np.vstack([class_to_factor_mi[np.newaxis, :], factor_matrix])
+
+        # Create mask for upper triangle (excluding diagonal)
+        # Note: we add 1 to avoid masking zeros, k=0 includes diagonal
+        mask = np.triu(combined + 1, k=0) < 1
+        # Apply mask and slice to get (n_factors-1) x (n_factors-1) matrix
+        # From (n_factors+1, n_factors): drop last 2 rows and last column
+        data = np.where(mask, np.nan, combined)[:-2, :-1]
 
         if row_labels is None:
-            row_labels = output.factor_names[:-1]
+            row_labels = ["class_label"] + factor_names[:-2]
         if col_labels is None:
-            col_labels = output.factor_names[1:]
+            col_labels = factor_names[:-1]
 
         xlabel = ""
         ylabel = ""
@@ -233,24 +264,37 @@ def prepare_diversity_data(
         (data, row_labels, col_labels, xlabel, ylabel, title, method_name)
         data is None for non-classwise bar charts
     """
-    method_name = output.meta().arguments["method"].title()
+    # Try to get method name from metadata state, fall back to "Diversity"
+    try:
+        meta = output.meta()
+        method_name = getattr(meta, "state", {}).get("method", "Diversity").title()
+    except (AttributeError, TypeError):
+        method_name = "Diversity"
 
     if plot_classwise:
-        if row_labels is None:
-            row_labels = output.class_names
-        if col_labels is None:
-            col_labels = output.factor_names
+        # DataFrame-based output
+        class_names = output.classwise["class_name"].unique(maintain_order=True).to_list()
+        factor_names = output.classwise["factor_name"].unique(maintain_order=True).to_list()
 
-        data = output.classwise
+        # Pivot to matrix format
+        classwise_pivoted = output.classwise.pivot(on="factor_name", index="class_name", values="diversity_value")
+        data = classwise_pivoted.select(classwise_pivoted.columns[1:]).to_numpy()
+
+        if row_labels is None:
+            row_labels = class_names
+        if col_labels is None:
+            col_labels = factor_names
+
         xlabel = "Factors"
         ylabel = "Class"
         title = "Classwise Diversity"
     else:
-        # Bar chart - no heatmap data
-        heat_labels = ["class_labels"] + list(output.factor_names)
-        data = np.ndarray(0)  # unused
-        row_labels = heat_labels
+        # DataFrame-based output - bar chart
+        factor_names = output.factors["factor_name"].to_list()
+        data = np.ndarray(0)  # unused for bar charts
+        row_labels = factor_names
         col_labels = []  # unused
+
         xlabel = "Factors"
         ylabel = "Diversity Index"
         title = "Diversity Index by Factor"

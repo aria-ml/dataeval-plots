@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+import numpy as np
 from numpy.typing import NDArray
 
 from dataeval_plots.backends._base import BasePlottingBackend
@@ -69,7 +70,6 @@ class AltairBackend(BasePlottingBackend):
             Altair heatmap chart
         """
         import altair as alt
-        import numpy as np
         import pandas as pd
 
         # Use shared helper to prepare data
@@ -225,7 +225,9 @@ class AltairBackend(BasePlottingBackend):
 
             return chart + text
         # Bar chart for diversity indices
-        df = pd.DataFrame({"factor": row_labels, "diversity": output.diversity_index})
+        # DataFrame-based: get diversity values from factors DataFrame
+        diversity_values = output.factors["diversity_value"].to_list()
+        df = pd.DataFrame({"factor": row_labels, "diversity": diversity_values})
 
         return (
             alt.Chart(df)
