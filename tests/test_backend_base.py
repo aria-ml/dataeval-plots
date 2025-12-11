@@ -108,10 +108,10 @@ class BackendTestBase(ABC):
         mock_balance: MockPlottableBalance,
     ) -> None:
         """Test plotting balance with custom labels."""
-        # Global balance plot produces (n_factors-1) x (n_factors-1) matrix
-        # With 5 factors, that's 4x4
-        row_labels = ["row_0", "row_1", "row_2", "row_3"]
-        col_labels = ["col_0", "col_1", "col_2", "col_3"]
+        # Global balance plot produces n_factors x n_factors matrix after masking
+        # With 5 factors, that's 5x5 (class_label row + 4 factor rows, and 5 factor columns)
+        row_labels = ["row_0", "row_1", "row_2", "row_3", "row_4"]
+        col_labels = ["col_0", "col_1", "col_2", "col_3", "col_4"]
 
         result = backend.plot(
             mock_balance,

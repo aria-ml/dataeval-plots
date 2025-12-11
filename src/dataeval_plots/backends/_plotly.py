@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+import numpy as np
+import polars as pl
 from numpy.typing import NDArray
 
 from dataeval_plots.backends._base import BasePlottingBackend
@@ -623,13 +625,18 @@ class PlotlyBackend(BasePlottingBackend):
             )
             return fig
 
+        # Create index arrays for plotting
+        indices = np.arange(len(resdf))
+        trn_indices = resdf.with_row_index().filter(pl.col("chunk_period") == "reference")["index"].to_numpy()
+        tst_indices = resdf.with_row_index().filter(pl.col("chunk_period") == "analysis")["index"].to_numpy()
+
         fig = go.Figure()
 
         # Threshold lines
         fig.add_trace(
             go.Scatter(
-                x=resdf.index,
-                y=resdf["domain_classifier_auroc"]["upper_threshold"],
+                x=indices,
+                y=resdf["domain_classifier_auroc_upper_threshold"].to_numpy(),
                 mode="lines",
                 name="Threshold Upper",
                 line={"dash": "dash", "color": "red", "width": 2},
@@ -639,8 +646,8 @@ class PlotlyBackend(BasePlottingBackend):
 
         fig.add_trace(
             go.Scatter(
-                x=resdf.index,
-                y=resdf["domain_classifier_auroc"]["lower_threshold"],
+                x=indices,
+                y=resdf["domain_classifier_auroc_lower_threshold"].to_numpy(),
                 mode="lines",
                 name="Threshold Lower",
                 line={"dash": "dash", "color": "red", "width": 2},
@@ -651,8 +658,8 @@ class PlotlyBackend(BasePlottingBackend):
         # Train data
         fig.add_trace(
             go.Scatter(
-                x=trndf.index,
-                y=trndf["domain_classifier_auroc"]["value"],
+                x=trn_indices,
+                y=trndf["domain_classifier_auroc_value"].to_numpy(),
                 mode="lines",
                 name="Train",
                 line={"color": "blue", "width": 2},
@@ -663,8 +670,8 @@ class PlotlyBackend(BasePlottingBackend):
         # Test data
         fig.add_trace(
             go.Scatter(
-                x=tstdf.index,
-                y=tstdf["domain_classifier_auroc"]["value"],
+                x=tst_indices,
+                y=tstdf["domain_classifier_auroc_value"].to_numpy(),
                 mode="lines",
                 name="Test",
                 line={"color": "green", "width": 2},
@@ -676,8 +683,8 @@ class PlotlyBackend(BasePlottingBackend):
         if len(driftx) > 0:
             fig.add_trace(
                 go.Scatter(
-                    x=resdf.index.values[driftx],
-                    y=resdf["domain_classifier_auroc"]["value"].values[driftx],
+                    x=driftx,
+                    y=resdf["domain_classifier_auroc_value"].to_numpy()[driftx],
                     mode="markers",
                     name="Drift",
                     marker={"symbol": "diamond", "size": 10, "color": "magenta"},

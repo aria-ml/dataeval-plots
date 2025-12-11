@@ -128,7 +128,7 @@ def normalize_reference_outputs(
     """
     if reference_outputs is None:
         return []
-    if not isinstance(reference_outputs, (list, tuple)):
+    if not isinstance(reference_outputs, list | tuple):
         return [reference_outputs]
     return list(reference_outputs)
 
@@ -183,45 +183,39 @@ def prepare_balance_data(
         ylabel = "Class"
         title = "Classwise Balance"
     else:
-        # DataFrame-based output
-        # Get factor names (excluding 'class_label' from balance DataFrame)
-        balance_factors = output.balance.filter(pl.col("factor_name") != "class_label")
-        factor_names = balance_factors["factor_name"].to_list()
+        # Get all factor names from balance DataFrame (includes "class_label" + metadata factors)
+        all_factor_names = output.balance["factor_name"].to_list()
+        # Metadata factor names only (exclude class_label)
+        factor_names = sorted(all_factor_names[1:])
 
-        # Extract class-to-factor MI values (first row of heatmap)
-        class_to_factor_mi = balance_factors["mi_value"].to_numpy()
+        # Create matrix: first row is balance (class-to-factor MI for metadata factors only),
+        # rest is interfactor MI
+        balance_row = output.balance["mi_value"].to_numpy()[1:]  # Skip class_label self-MI
+        interfactor_matrix = (
+            output.factors.pivot(
+                on="factor2",
+                index="factor1",
+                values="mi_value",
+                aggregate_function=None,
+            )
+            .sort("factor1")  # Sort the rows alphabetically
+            .select(factor_names)  # Select columns in the exact same order
+            .to_numpy()  # Export to pure NumPy
+        )
 
-        # Build inter-factor correlation matrix
-        n_factors = len(factor_names)
-        factor_matrix = np.zeros((n_factors, n_factors))
-        factor_to_idx = {f: i for i, f in enumerate(factor_names)}
+        # Combine: balance row + interfactor matrix
+        data = np.concatenate([balance_row[np.newaxis, :], interfactor_matrix], axis=0)
 
-        # Fill matrix with inter-factor MI values
-        for row in output.factors.iter_rows(named=True):
-            if row["factor1"] in factor_to_idx and row["factor2"] in factor_to_idx:
-                i = factor_to_idx[row["factor1"]]
-                j = factor_to_idx[row["factor2"]]
-                factor_matrix[i, j] = row["mi_value"]
-                factor_matrix[j, i] = row["mi_value"]
-
-        # Set diagonal to 1 (self-correlation)
-        np.fill_diagonal(factor_matrix, 1.0)
-
-        # Combine: first row = class-to-factor MI, rest = inter-factor correlations
-        # Shape: (n_factors+1, n_factors) where row 0 is class-to-factor
-        combined = np.vstack([class_to_factor_mi[np.newaxis, :], factor_matrix])
-
-        # Create mask for upper triangle (excluding diagonal)
-        # Note: we add 1 to avoid masking zeros, k=0 includes diagonal
-        mask = np.triu(combined + 1, k=0) < 1
-        # Apply mask and slice to get (n_factors-1) x (n_factors-1) matrix
-        # From (n_factors+1, n_factors): drop last 2 rows and last column
-        data = np.where(mask, np.nan, combined)[:-2, :-1]
+        # Create mask for lower triangle (excluding diagonal)
+        # This creates an upper triangular matrix for visualization
+        # Shift diagonal down by 1 to account for the class_label row at the top
+        mask = np.tril(np.ones_like(data, dtype=bool), k=-1)
+        data = np.where(mask, np.nan, data)[:-1, :]
 
         if row_labels is None:
-            row_labels = ["class_label"] + factor_names[:-2]
+            row_labels = ["class_label"] + factor_names[:-1]
         if col_labels is None:
-            col_labels = factor_names[:-1]
+            col_labels = factor_names
 
         xlabel = ""
         ylabel = ""
@@ -323,15 +317,19 @@ def prepare_drift_data(
         driftx: Indices where drift was detected
         is_sufficient: Whether there's enough data to plot (>= 3 rows)
     """
-    resdf = output.to_dataframe()
+    resdf = output.data()
     is_sufficient = resdf.shape[0] >= 3
 
     if not is_sufficient:
         return resdf, None, None, np.array([]), False
 
-    trndf = resdf[resdf["chunk"]["period"] == "reference"]
-    tstdf = resdf[resdf["chunk"]["period"] == "analysis"]
-    driftx = np.where(resdf["domain_classifier_auroc"]["alert"].values)[0]  # type: ignore
+    # Filter for reference and analysis periods
+    trndf = resdf.filter(pl.col("chunk_period") == "reference")
+    tstdf = resdf.filter(pl.col("chunk_period") == "analysis")
+
+    # Get drift alert indices
+    drift_mask = resdf["domain_classifier_auroc_alert"].to_numpy()
+    driftx = np.where(drift_mask)[0]
 
     return resdf, trndf, tstdf, driftx, True
 
@@ -434,18 +432,24 @@ def plot_drift_on_axis(
     legend_loc : str, default "lower left"
         Location of legend
     """
+    # Get indices for plotting
+    n_rows = len(resdf)
+    indices = np.arange(n_rows)
+    trn_indices = resdf.with_row_index().filter(pl.col("chunk_period") == "reference")["index"].to_numpy()
+    tst_indices = resdf.with_row_index().filter(pl.col("chunk_period") == "analysis")["index"].to_numpy()
+
     # Plot threshold lines
     ax.plot(
-        resdf.index,
-        resdf["domain_classifier_auroc"]["upper_threshold"],
+        indices,
+        resdf["domain_classifier_auroc_upper_threshold"].to_numpy(),
         threshold_linestyle,
         color=threshold_upper_color,
         label=threshold_upper_label,
         linewidth=linewidth,
     )
     ax.plot(
-        resdf.index,
-        resdf["domain_classifier_auroc"]["lower_threshold"],
+        indices,
+        resdf["domain_classifier_auroc_lower_threshold"].to_numpy(),
         threshold_linestyle,
         color=threshold_lower_color,
         label=threshold_lower_label,
@@ -454,16 +458,16 @@ def plot_drift_on_axis(
 
     # Plot train and test data
     ax.plot(
-        trndf.index,
-        trndf["domain_classifier_auroc"]["value"],
+        trn_indices,
+        trndf["domain_classifier_auroc_value"].to_numpy(),
         train_linestyle,
         color=train_color,
         label=train_label,
         linewidth=linewidth,
     )
     ax.plot(
-        tstdf.index,
-        tstdf["domain_classifier_auroc"]["value"],
+        tst_indices,
+        tstdf["domain_classifier_auroc_value"].to_numpy(),
         test_linestyle,
         color=test_color,
         label=test_label,
@@ -472,8 +476,8 @@ def plot_drift_on_axis(
 
     # Plot drift points
     ax.plot(
-        resdf.index.values[driftx],  # type: ignore
-        resdf["domain_classifier_auroc"]["value"].values[driftx],  # type: ignore
+        driftx,
+        resdf["domain_classifier_auroc_value"].to_numpy()[driftx],
         drift_marker,
         color=drift_color,
         markersize=drift_markersize,

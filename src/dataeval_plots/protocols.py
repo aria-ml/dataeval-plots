@@ -267,16 +267,16 @@ class PlottableDriftMVDC(Plottable, Protocol):
     """Protocol for drift MVDC plot outputs.
 
     Required methods:
-    - to_dataframe(): Convert drift results to pandas DataFrame
+    - data(): Drift results as polars DataFrame
     - plot_type() -> 'drift_mvdc'
     """
 
-    def to_dataframe(self) -> Any:  # pandas.DataFrame
-        """Convert drift detection results to DataFrame.
+    def data(self) -> pl.DataFrame:
+        """Drift detection results as a polars DataFrame.
 
         Returns
         -------
-        pandas.DataFrame
+        pl.DataFrame
             DataFrame with drift detection results including chunks,
             metrics, thresholds, and alerts
         """

@@ -6,6 +6,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 import numpy as np
+import polars as pl
 from numpy.typing import NDArray
 
 from dataeval_plots.backends._base import BasePlottingBackend
@@ -602,28 +603,32 @@ class AltairBackend(BasePlottingBackend):
             # Not enough data to plot
             return alt.Chart(pd.DataFrame()).mark_point().properties(title="Insufficient data for drift detection plot")
 
-        # Prepare data for plotting
-        plot_data = []
-
-        for idx, row in resdf.iterrows():
-            period = row["chunk"]["period"]
-            value = row["domain_classifier_auroc"]["value"]
-            upper_thr = row["domain_classifier_auroc"]["upper_threshold"]
-            lower_thr = row["domain_classifier_auroc"]["lower_threshold"]
-            alert = row["domain_classifier_auroc"]["alert"]
-
-            plot_data.append(
-                {
-                    "index": idx,
-                    "value": float(value),
-                    "upper_threshold": float(upper_thr),
-                    "lower_threshold": float(lower_thr),
-                    "period": "train" if period == "reference" else "test",
-                    "alert": bool(alert),
-                }
+        # Convert Polars DataFrame to format needed for plotting
+        # Create index column and map period values
+        # Convert via dict to avoid pyarrow dependency
+        plot_df = (
+            resdf.with_row_index("index")
+            .with_columns(
+                [
+                    pl.when(pl.col("chunk_period") == "reference")
+                    .then(pl.lit("train"))
+                    .otherwise(pl.lit("test"))
+                    .alias("period")
+                ]
             )
-
-        df = pd.DataFrame(plot_data)
+            .select(
+                [
+                    "index",
+                    pl.col("domain_classifier_auroc_value").alias("value"),
+                    pl.col("domain_classifier_auroc_upper_threshold").alias("upper_threshold"),
+                    pl.col("domain_classifier_auroc_lower_threshold").alias("lower_threshold"),
+                    "period",
+                    pl.col("domain_classifier_auroc_alert").alias("alert"),
+                ]
+            )
+        )
+        # Convert to pandas via dict to avoid pyarrow dependency
+        df = pd.DataFrame(plot_df.to_dict(as_series=False))
 
         # Create base chart
         base = alt.Chart(df).encode(x=alt.X("index:Q", title="Chunk Index"))

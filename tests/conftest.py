@@ -102,9 +102,10 @@ class MockPlottableStats:
 class MockPlottableDriftMVDC:
     """Mock drift MVDC output for testing."""
 
-    _df: Any  # pandas.DataFrame
+    _df: Any  # polars.DataFrame
 
-    def to_dataframe(self) -> Any:
+    def data(self) -> Any:
+        """Return the data as a polars DataFrame."""
         return self._df
 
     def plot_type(self) -> Literal["drift_mvdc"]:
@@ -156,6 +157,7 @@ def mock_balance() -> MockPlottableBalance:
 
     # Create balance DataFrame: factor_name, mi_value
     # Include "class_label" plus all factors
+    # Note: balance DataFrame is NOT sorted; sorting happens in prepare_balance_data
     balance_df = pl.DataFrame(
         {
             "factor_name": ["class_label"] + factor_names,
@@ -164,19 +166,20 @@ def mock_balance() -> MockPlottableBalance:
     )
 
     # Create factors DataFrame: factor1, factor2, mi_value, is_correlated
-    # Generate all pairwise combinations
+    # Generate all pairwise combinations (full matrix including diagonal)
     factor_pairs = []
     for i, f1 in enumerate(factor_names):
         for j, f2 in enumerate(factor_names):
-            if i < j:  # Only upper triangle
-                factor_pairs.append(
-                    {
-                        "factor1": f1,
-                        "factor2": f2,
-                        "mi_value": np.random.rand(),
-                        "is_correlated": np.random.rand() > 0.5,
-                    }
-                )
+            # Create full matrix including diagonal (self-MI = 1.0)
+            mi_value = 1.0 if i == j else np.random.rand()
+            factor_pairs.append(
+                {
+                    "factor1": f1,
+                    "factor2": f2,
+                    "mi_value": mi_value,
+                    "is_correlated": np.random.rand() > 0.5 if i != j else True,
+                }
+            )
     factors_df = pl.DataFrame(factor_pairs)
 
     # Create classwise DataFrame: class_name, factor_name, mi_value, is_imbalanced
@@ -320,35 +323,23 @@ def mock_stats_multi_channel() -> MockPlottableStats:
 @pytest.fixture
 def mock_drift_mvdc() -> MockPlottableDriftMVDC:
     """Create mock drift MVDC output."""
-    import pandas as pd
-
     n_points = 50
 
-    # Create a DataFrame with MultiIndex columns to support nested access like df["chunk"]["period"]
+    # Create a Polars DataFrame with the expected column names
     periods = ["reference"] * 25 + ["analysis"] * 25
     values = np.random.rand(n_points)
     alerts = [False] * 40 + [True] * 10
 
-    # Create MultiIndex columns: first level is the metric group, second level is the field
-    columns = pd.MultiIndex.from_tuples(
-        [
-            ("chunk", "period"),
-            ("domain_classifier_auroc", "value"),
-            ("domain_classifier_auroc", "lower_threshold"),
-            ("domain_classifier_auroc", "upper_threshold"),
-            ("domain_classifier_auroc", "alert"),
-        ]
+    # Create Polars DataFrame with flat column names
+    df = pl.DataFrame(
+        {
+            "chunk_period": periods,
+            "domain_classifier_auroc_value": values,
+            "domain_classifier_auroc_lower_threshold": [0.4] * n_points,
+            "domain_classifier_auroc_upper_threshold": [0.6] * n_points,
+            "domain_classifier_auroc_alert": alerts,
+        }
     )
-
-    data = {
-        ("chunk", "period"): periods,
-        ("domain_classifier_auroc", "value"): values,
-        ("domain_classifier_auroc", "lower_threshold"): [0.4] * n_points,
-        ("domain_classifier_auroc", "upper_threshold"): [0.6] * n_points,
-        ("domain_classifier_auroc", "alert"): alerts,
-    }
-
-    df = pd.DataFrame(data, columns=columns)
 
     return MockPlottableDriftMVDC(_df=df)
 
