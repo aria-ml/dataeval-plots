@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.5] - 2026-01-14
+
+- [feat] Update for new DataEval output classes
+- [deps] Remove upper pin for numpy>2.3
+
 ## [0.0.4] - 2025-11-10
 
 - [impr] Refactor duplicate code and improve bounding boxes
