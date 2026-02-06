@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.6] - 2026-02-05
+
+- [deps] Remove python upper version limit
+
 ## [0.0.5] - 2026-01-14
 
 - [feat] Update for new DataEval output classes
