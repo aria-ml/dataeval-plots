@@ -99,12 +99,12 @@ class Dataset(Protocol):
 
     Properties
     ----------
-    metadata : DatasetMetadata
+    metadata : Mapping[str, Any]
         Dataset metadata including id and optional index2label mapping
     """
 
     @property
-    def metadata(self) -> DatasetMetadata: ...
+    def metadata(self) -> Mapping[str, Any]: ...
     def __getitem__(self, index: int, /) -> Any: ...
     def __len__(self) -> int: ...
 
