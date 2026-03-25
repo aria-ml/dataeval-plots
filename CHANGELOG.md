@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.8] - 2026-03-25
+
+- [feat] Add project plot function for plotting embeddings
+
 ## [0.0.7] - 2026-03-10
 
 - [fix] Soften the protocol requirement for MAITE datasets
