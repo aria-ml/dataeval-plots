@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from typing import Any
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, Literal
 
 import numpy as np
 import polars as pl
@@ -870,5 +870,222 @@ class PlotlyBackend(BasePlottingBackend):
             height = sum(int(h * (1 + 2 * padding_factor)) for h in max_height_per_row) + 50  # Add 50 for title space
 
         fig.update_layout(width=width, height=height, showlegend=False, margin={"l": 0, "r": 0, "t": 50, "b": 0})
+
+        return fig
+
+    def _add_scatter_traces(
+        self,
+        fig: Any,
+        embeddings: NDArray[Any],
+        labels: NDArray[Any] | None,
+        label_names: Mapping[int, str] | None,
+        dimensions: Literal[2, 3],
+        *,
+        row: int | None = None,
+        col: int | None = None,
+        legend_added: set[str] | None = None,
+    ) -> None:
+        """Add scatter traces for one subplot to the given figure."""
+        import plotly.graph_objects as go
+
+        hover_tpl = "%{fullData.name}<extra></extra>"
+        marker_size = 3 if dimensions == 3 else 5
+        ScatterCls = go.Scatter3d if dimensions == 3 else go.Scatter
+
+        rc_kwargs: dict[str, int] = {}
+        if row is not None and col is not None:
+            rc_kwargs = {"row": row, "col": col}
+
+        if labels is not None:
+            unique_labels = np.unique(labels)
+            for label in unique_labels:
+                mask = labels == label
+                name = label_names[int(label)] if label_names and int(label) in label_names else str(label)
+                show_legend = True
+                legend_kwargs: dict[str, Any] = {}
+                if legend_added is not None:
+                    show_legend = name not in legend_added
+                    legend_added.add(name)
+                    legend_kwargs = {"legendgroup": name, "showlegend": show_legend}
+
+                coords: dict[str, Any] = {"x": embeddings[mask, 0], "y": embeddings[mask, 1]}
+                if dimensions == 3:
+                    coords["z"] = embeddings[mask, 2]
+
+                fig.add_trace(
+                    ScatterCls(
+                        **coords,
+                        mode="markers",
+                        marker={"size": marker_size, "opacity": 0.7},
+                        name=name,
+                        hovertemplate=hover_tpl,
+                        **legend_kwargs,
+                    ),
+                    **rc_kwargs,
+                )
+        else:
+            coords = {"x": embeddings[:, 0], "y": embeddings[:, 1]}
+            if dimensions == 3:
+                coords["z"] = embeddings[:, 2]
+
+            fig.add_trace(
+                ScatterCls(
+                    **coords,
+                    mode="markers",
+                    marker={"size": marker_size, "opacity": 0.7},
+                    name="embeddings",
+                    showlegend=False,
+                    hoverinfo="skip",
+                ),
+                **rc_kwargs,
+            )
+
+    @staticmethod
+    def _clean_projection_axes(fig: Any, dimensions: Literal[2, 3], n_scenes: int = 1) -> None:
+        """Hide tick labels on projection axes."""
+        if dimensions == 3:
+            _clean = {"showspikes": False, "showticklabels": False, "title": ""}
+            for i in range(n_scenes):
+                scene_key = "scene" if i == 0 else f"scene{i + 1}"
+                fig.update_layout(**{scene_key: {"xaxis": _clean, "yaxis": _clean, "zaxis": _clean}})
+        else:
+            fig.update_xaxes(showticklabels=False, ticks="", title_text="")
+            fig.update_yaxes(showticklabels=False, ticks="", title_text="")
+
+    def project(
+        self,
+        embeddings: NDArray[Any],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        method: str = "pca",
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Any:  # go.Figure
+        """
+        Plot projected embeddings as an interactive scatter plot.
+
+        Parameters
+        ----------
+        embeddings : NDArray
+            Reduced embeddings with shape ``(N, 2)`` or ``(N, 3)``.
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        method : str, default "pca"
+            Name of the reduction method used (for title/display).
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height).
+        title : str or None, default None
+            Plot title. If None, auto-generated from method name.
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+        """
+        import plotly.graph_objects as go
+
+        if title is None:
+            title = f"{method.upper()} Projection"
+
+        if figsize is not None:
+            width = int(figsize[0] * 100)
+            height = int(figsize[1] * 100)
+        else:
+            width = 800
+            height = 600
+
+        fig = go.Figure()
+        self._add_scatter_traces(fig, embeddings, labels, label_names, dimensions)
+        self._clean_projection_axes(fig, dimensions)
+
+        fig.update_layout(
+            title=title,
+            width=width,
+            height=height,
+            hovermode="closest",
+            legend={"itemsizing": "constant", "itemclick": "toggleothers", "itemdoubleclick": "toggle"},
+        )
+
+        return fig
+
+    def project_grid(
+        self,
+        embeddings_list: Sequence[NDArray[Any]],
+        methods: Sequence[str],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Any:  # go.Figure
+        """
+        Plot a grid of projected embeddings comparing multiple reduction methods.
+
+        Parameters
+        ----------
+        embeddings_list : list[NDArray]
+            List of reduced embeddings, one per method.
+        methods : list[str]
+            Names of the reduction methods.
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height) for the entire grid.
+        title : str or None, default None
+            Overall title for the grid figure.
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+        """
+        from plotly.subplots import make_subplots
+
+        from dataeval_plots.backends._shared import calculate_subplot_grid
+
+        n = len(methods)
+        aspect = figsize[0] / figsize[1] if figsize else None
+        rows, cols = calculate_subplot_grid(n, aspect_ratio=aspect)
+
+        if figsize is not None:
+            width = int(figsize[0] * 100)
+            height = int(figsize[1] * 100)
+        else:
+            width = cols * 400
+            height = rows * 350
+
+        subplot_titles = [m.upper() for m in methods]
+
+        if dimensions == 3:
+            specs = [[{"type": "scene"} for _ in range(cols)] for _ in range(rows)]
+            fig = make_subplots(rows=rows, cols=cols, subplot_titles=subplot_titles, specs=specs)
+        else:
+            fig = make_subplots(rows=rows, cols=cols, subplot_titles=subplot_titles)
+
+        legend_added: set[str] = set()
+
+        for idx, emb in enumerate(embeddings_list):
+            row = idx // cols + 1
+            col = idx % cols + 1
+            self._add_scatter_traces(
+                fig, emb, labels, label_names, dimensions, row=row, col=col, legend_added=legend_added
+            )
+
+        fig.update_layout(
+            title=title or "Projection Comparison",
+            width=width,
+            height=height,
+            hovermode="closest",
+            legend={"itemsizing": "constant", "itemclick": "toggleothers", "itemdoubleclick": "toggle"},
+        )
+
+        self._clean_projection_axes(fig, dimensions, n_scenes=n)
 
         return fig

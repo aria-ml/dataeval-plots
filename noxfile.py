@@ -13,6 +13,7 @@ PYTHON_RE_PATTERN = re.compile(r"\d\.\d{1,2}")
 IS_CI = bool(os.environ.get("CI"))
 
 nox.options.default_venv_backend = "uv"
+nox.options.reuse_venv = "always"
 nox.options.sessions = ["test", "type", "lint"]
 
 

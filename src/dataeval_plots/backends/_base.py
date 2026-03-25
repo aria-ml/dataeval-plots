@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, Any, Protocol, cast, overload
+from collections.abc import Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
 import numpy as np
 from numpy.typing import NDArray
@@ -112,6 +113,81 @@ class PlottingBackend(Protocol):
         -------
         Figure
             Backend-specific figure object
+        """
+        ...
+
+    def project(
+        self,
+        embeddings: NDArray[Any],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        method: str = "pca",
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Any:
+        """
+        Plot projected embeddings as a scatter plot.
+
+        Parameters
+        ----------
+        embeddings : NDArray
+            Reduced embeddings with shape ``(N, 2)`` or ``(N, 3)``.
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        method : str, default "pca"
+            Name of the reduction method used (for title/display).
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height).
+        title : str or None, default None
+            Plot title. If None, auto-generated from method name.
+
+        Returns
+        -------
+        Any
+            Backend-specific figure object.
+        """
+        ...
+
+    def project_grid(
+        self,
+        embeddings_list: Sequence[NDArray[Any]],
+        methods: Sequence[str],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Any:
+        """
+        Plot a grid of projected embeddings comparing multiple reduction methods.
+
+        Parameters
+        ----------
+        embeddings_list : list[NDArray]
+            List of reduced embeddings, one per method, each with shape
+            ``(N, 2)`` or ``(N, 3)``.
+        methods : list[str]
+            Names of the reduction methods (one per embeddings entry).
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height) for the entire grid.
+        title : str or None, default None
+            Overall title for the grid figure.
+
+        Returns
+        -------
+        Any
+            Backend-specific figure object.
         """
         ...
 
@@ -346,4 +422,166 @@ class BasePlottingBackend(PlottingBackend, ABC):
                 ax.set_title("\n".join(title_parts), fontsize=8, pad=3)
 
         plt.tight_layout()
+        return fig
+
+    def project(
+        self,
+        embeddings: NDArray[Any],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        method: str = "pca",
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Figure:
+        """
+        Plot projected embeddings as a 2D or 3D scatter plot.
+
+        This is a default matplotlib-based implementation used by matplotlib
+        and seaborn backends. Plotly and Altair backends override this method.
+
+        Parameters
+        ----------
+        embeddings : NDArray
+            Reduced embeddings with shape ``(N, 2)`` or ``(N, 3)``.
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        method : str, default "pca"
+            Name of the reduction method used (for title/display).
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height).
+        title : str or None, default None
+            Plot title. If None, auto-generated from method name.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import matplotlib.pyplot as plt
+
+        if title is None:
+            title = f"{method.upper()} Projection"
+
+        if dimensions == 3:
+            fig = plt.figure(figsize=figsize or (10, 8))
+            ax = fig.add_subplot(111, projection="3d")
+        else:
+            fig, ax = plt.subplots(figsize=figsize or (10, 8))
+
+        self._scatter_on_axis(ax, embeddings, labels, label_names, dimensions, title)
+        with warnings.catch_warnings():
+            # tight_layout can fail to negotiate margins for 3D axes
+            warnings.filterwarnings("ignore", message=".*Tight layout.*", category=UserWarning)
+            fig.tight_layout()
+        return fig
+
+    def _scatter_on_axis(
+        self,
+        ax: Any,
+        embeddings: NDArray[Any],
+        labels: NDArray[Any] | None,
+        label_names: Mapping[int, str] | None,
+        dimensions: Literal[2, 3],
+        subtitle: str,
+    ) -> None:
+        """Render a single scatter plot on the given axis."""
+        if labels is not None:
+            unique_labels = np.unique(labels)
+            for label in unique_labels:
+                mask = labels == label
+                name = label_names[int(label)] if label_names and int(label) in label_names else str(label)
+                if dimensions == 3:
+                    ax.scatter(
+                        embeddings[mask, 0], embeddings[mask, 1], embeddings[mask, 2], label=name, alpha=0.7, s=10
+                    )
+                else:
+                    ax.scatter(embeddings[mask, 0], embeddings[mask, 1], label=name, alpha=0.7, s=10)
+            ax.legend(fontsize=7, markerscale=0.8)
+        else:
+            if dimensions == 3:
+                ax.scatter(embeddings[:, 0], embeddings[:, 1], embeddings[:, 2], alpha=0.7, s=10)
+            else:
+                ax.scatter(embeddings[:, 0], embeddings[:, 1], alpha=0.7, s=10)
+
+        if dimensions == 3:
+            # Use set_*ticklabels (not set_*ticks) to keep axis grid lines
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            ax.set_zticklabels([])
+        else:
+            ax.set_xticks([])
+            ax.set_yticks([])
+        ax.set_title(subtitle, fontsize=10)
+
+    def project_grid(
+        self,
+        embeddings_list: Sequence[NDArray[Any]],
+        methods: Sequence[str],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Figure:
+        """
+        Plot a grid of projected embeddings comparing multiple reduction methods.
+
+        Parameters
+        ----------
+        embeddings_list : list[NDArray]
+            List of reduced embeddings, one per method.
+        methods : list[str]
+            Names of the reduction methods.
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height) for the entire grid.
+        title : str or None, default None
+            Overall title for the grid figure.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import matplotlib.pyplot as plt
+
+        from dataeval_plots.backends._shared import calculate_subplot_grid
+
+        n = len(methods)
+        aspect = figsize[0] / figsize[1] if figsize else None
+        rows, cols = calculate_subplot_grid(n, aspect_ratio=aspect)
+
+        if figsize is None:
+            figsize = (cols * 5, rows * 4)
+
+        if dimensions == 3:
+            fig = plt.figure(figsize=figsize)
+            axes = [fig.add_subplot(rows, cols, i + 1, projection="3d") for i in range(n)]
+            # Hide unused subplot positions
+            for i in range(n, rows * cols):
+                ax_empty = fig.add_subplot(rows, cols, i + 1)
+                ax_empty.set_visible(False)
+        else:
+            fig, axes_array = plt.subplots(rows, cols, figsize=figsize, squeeze=False)
+            axes = list(np.asarray(axes_array).flatten())
+            for ax in axes[n:]:
+                ax.set_visible(False)
+
+        for ax, emb, method in zip(axes, embeddings_list, methods):
+            self._scatter_on_axis(ax, emb, labels, label_names, dimensions, method.upper())
+
+        if title:
+            fig.suptitle(title, fontsize=14)
+        with warnings.catch_warnings():
+            # tight_layout can fail to negotiate margins for 3D axes
+            warnings.filterwarnings("ignore", message=".*Tight layout.*", category=UserWarning)
+            fig.tight_layout()
         return fig

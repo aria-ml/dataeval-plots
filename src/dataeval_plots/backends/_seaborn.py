@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 from numpy.typing import NDArray
 
@@ -351,6 +351,69 @@ class SeabornBackend(BasePlottingBackend):
                 ax.set_visible(False)
 
         fig.tight_layout()
+        return fig
+
+    def project(
+        self,
+        embeddings: NDArray[Any],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        method: str = "pca",
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Figure:
+        """
+        Plot projected embeddings with Seaborn styling.
+
+        Parameters
+        ----------
+        embeddings : NDArray
+            Reduced embeddings with shape ``(N, 2)`` or ``(N, 3)``.
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        method : str, default "pca"
+            Name of the reduction method used (for title/display).
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height).
+        title : str or None, default None
+            Plot title. If None, auto-generated from method name.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import seaborn as sns
+
+        with sns.axes_style("whitegrid"), sns.color_palette("husl"):
+            fig = super().project(embeddings, labels, label_names, method, dimensions, figsize, title)
+            for ax in fig.axes:
+                sns.despine(ax=ax)
+
+        return fig
+
+    def project_grid(
+        self,
+        embeddings_list: Sequence[NDArray[Any]],
+        methods: Sequence[str],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Figure:
+        """Plot a grid of projected embeddings with Seaborn styling."""
+        import seaborn as sns
+
+        with sns.axes_style("whitegrid"), sns.color_palette("husl"):
+            fig = super().project_grid(embeddings_list, methods, labels, label_names, dimensions, figsize, title)
+            for ax in fig.axes:
+                sns.despine(ax=ax)
+
         return fig
 
     def _plot_drift_mvdc(

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from typing import Any
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, Literal
 
 import numpy as np
 import polars as pl
@@ -830,3 +830,187 @@ class AltairBackend(BasePlottingBackend):
             chart = image_chart.properties(width=img_width * images_per_row, height=img_height * num_rows)
 
         return chart
+
+    def _build_scatter_chart(
+        self,
+        embeddings: NDArray[Any],
+        labels: NDArray[Any] | None,
+        label_names: Mapping[int, str] | None,
+        width: int,
+        height: int,
+        title: str,
+        point_size: int = 30,
+    ) -> Any:  # alt.Chart
+        """Build a single Altair scatter chart for 2D embeddings."""
+        import altair as alt
+        import pandas as pd
+
+        _no_axis = alt.Axis(labels=False, ticks=False, title="")
+        data: dict[str, Any] = {
+            "x": embeddings[:, 0],
+            "y": embeddings[:, 1],
+        }
+
+        if labels is not None:
+            if label_names:
+                data["class"] = [label_names.get(int(lbl), str(lbl)) for lbl in labels]
+            else:
+                data["class"] = [str(lbl) for lbl in labels]
+
+        df = pd.DataFrame(data)
+
+        if labels is not None:
+            chart = (
+                alt.Chart(df)
+                .mark_circle(size=point_size, opacity=0.7)
+                .encode(
+                    x=alt.X("x:Q", axis=_no_axis),
+                    y=alt.Y("y:Q", axis=_no_axis),
+                    color=alt.Color("class:N", title="Class"),
+                    tooltip=["class:N"],
+                )
+            )
+        else:
+            chart = (
+                alt.Chart(df)
+                .mark_circle(size=point_size, opacity=0.7)
+                .encode(
+                    x=alt.X("x:Q", axis=_no_axis),
+                    y=alt.Y("y:Q", axis=_no_axis),
+                )
+            )
+
+        return chart.properties(width=width, height=height, title=title)
+
+    def project(
+        self,
+        embeddings: NDArray[Any],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        method: str = "pca",
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Any:  # alt.Chart
+        """
+        Plot projected embeddings as a scatter chart.
+
+        Parameters
+        ----------
+        embeddings : NDArray
+            Reduced embeddings with shape ``(N, 2)``.
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        method : str, default "pca"
+            Name of the reduction method used (for title/display).
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height).
+        title : str or None, default None
+            Plot title. If None, auto-generated from method name.
+
+        Returns
+        -------
+        alt.Chart
+
+        Raises
+        ------
+        NotImplementedError
+            If dimensions is 3 (Altair does not support 3D scatter plots).
+        """
+        if dimensions == 3:
+            raise NotImplementedError(
+                "Altair does not support 3D scatter plots. Use dimensions=2 or a different backend."
+            )
+
+        if title is None:
+            title = f"{method.upper()} Projection"
+
+        if figsize is not None:
+            width = int(figsize[0] * 100)
+            height = int(figsize[1] * 100)
+        else:
+            width = 600
+            height = 500
+
+        return self._build_scatter_chart(embeddings, labels, label_names, width, height, title)
+
+    def project_grid(
+        self,
+        embeddings_list: Sequence[NDArray[Any]],
+        methods: Sequence[str],
+        labels: NDArray[Any] | None = None,
+        label_names: Mapping[int, str] | None = None,
+        dimensions: Literal[2, 3] = 2,
+        figsize: tuple[int, int] | None = None,
+        title: str | None = None,
+    ) -> Any:  # alt.VConcatChart | alt.HConcatChart | alt.Chart
+        """
+        Plot a grid of projected embeddings comparing multiple reduction methods.
+
+        Parameters
+        ----------
+        embeddings_list : list[NDArray]
+            List of reduced embeddings, one per method.
+        methods : list[str]
+            Names of the reduction methods.
+        labels : NDArray or None, default None
+            Class labels for coloring points, shape ``(N,)``.
+        label_names : dict[int, str] or None, default None
+            Mapping from integer labels to display names.
+        dimensions : {2, 3}, default 2
+            Number of dimensions in the embeddings.
+        figsize : tuple[int, int] or None, default None
+            Figure size in inches (width, height) for the entire grid.
+        title : str or None, default None
+            Overall title for the grid figure.
+
+        Returns
+        -------
+        alt.VConcatChart or alt.HConcatChart or alt.Chart
+
+        Raises
+        ------
+        NotImplementedError
+            If dimensions is 3.
+        """
+        if dimensions == 3:
+            raise NotImplementedError(
+                "Altair does not support 3D scatter plots. Use dimensions=2 or a different backend."
+            )
+
+        import altair as alt
+
+        from dataeval_plots.backends._shared import calculate_subplot_grid
+
+        n = len(methods)
+        aspect = figsize[0] / figsize[1] if figsize else None
+        rows, cols = calculate_subplot_grid(n, aspect_ratio=aspect)
+
+        if figsize is not None:
+            chart_width = int(figsize[0] * 100) // cols
+            chart_height = int(figsize[1] * 100) // rows
+        else:
+            chart_width = 250
+            chart_height = 220
+
+        charts = [
+            self._build_scatter_chart(emb, labels, label_names, chart_width, chart_height, m.upper(), point_size=20)
+            for emb, m in zip(embeddings_list, methods)
+        ]
+
+        # Arrange in grid rows
+        grid_rows = []
+        for i in range(0, len(charts), cols):
+            row_charts = charts[i : i + cols]
+            grid_rows.append(alt.hconcat(*row_charts) if len(row_charts) > 1 else row_charts[0])
+
+        grid = alt.vconcat(*grid_rows) if len(grid_rows) > 1 else grid_rows[0]
+
+        if title:
+            grid = grid.properties(title=title)
+
+        return grid

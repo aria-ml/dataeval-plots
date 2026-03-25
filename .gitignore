@@ -19,3 +19,5 @@ output/
 .vscode/launch.json
 
 src/dataeval_plots/_version.py
+
+examples/**/

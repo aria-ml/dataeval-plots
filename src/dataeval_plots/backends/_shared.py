@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import polars as pl
@@ -16,11 +18,25 @@ if TYPE_CHECKING:
         PlottableDriftMVDC,
     )
 
+MethodType = Literal[
+    "pca",
+    "tsne",
+    "umap",
+    "isomap",
+    "mds",
+    "spectral",
+    "truncated_svd",
+    "pacmap",
+    "phate",
+]
+
 __all__ = [
+    "MethodType",
     "f_out",
     "project_steps",
     "calculate_projection",
     "normalize_reference_outputs",
+    "reduce_embeddings",
     "prepare_balance_data",
     "prepare_diversity_data",
     "prepare_drift_data",
@@ -51,6 +67,129 @@ CHANNELWISE_METRICS = [
     "darkness",
     "entropy",
 ]
+
+
+def reduce_embeddings(
+    embeddings: NDArray[Any],
+    method: MethodType,
+    dimensions: Literal[2, 3] = 2,
+    perplexity: float = 30.0,
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    random_state: int | None = 0,
+) -> NDArray[Any]:
+    """
+    Reduce high-dimensional embeddings using the specified method.
+
+    Parameters
+    ----------
+    embeddings : NDArray
+        High-dimensional embeddings with shape ``(N, D)``.
+    method : MethodType
+        Dimensionality reduction method to use.
+    dimensions : {2, 3}, default 2
+        Number of output dimensions.
+    perplexity : float, default 30.0
+        Perplexity parameter for t-SNE. Ignored for other methods.
+    n_neighbors : int, default 15
+        Number of neighbors for neighbor-based methods (UMAP, Isomap,
+        Spectral, PaCMAP, PHATE). Ignored for other methods.
+    min_dist : float, default 0.1
+        Minimum distance for UMAP. Ignored for other methods.
+    random_state : int or None, default 0
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    NDArray
+        Reduced embeddings with shape ``(N, dimensions)``.
+
+    Raises
+    ------
+    ImportError
+        If scikit-learn or a required optional package is not installed.
+    ValueError
+        If an unknown method is specified.
+    """
+    if method in ("pca", "tsne", "isomap", "mds", "spectral", "truncated_svd"):
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "Dimension reduction requires scikit-learn. Install with: pip install dataeval-plots[projection]"
+            ) from None
+
+    n_samples = embeddings.shape[0]
+
+    if method == "pca":
+        from sklearn.decomposition import PCA
+
+        reducer = PCA(n_components=dimensions, random_state=random_state)
+    elif method == "tsne":
+        from sklearn.manifold import TSNE
+
+        # Perplexity must be less than the number of samples
+        effective_perplexity = min(perplexity, max(1.0, n_samples - 1.0))
+        reducer = TSNE(
+            n_components=dimensions,
+            perplexity=effective_perplexity,
+            learning_rate="auto",
+            max_iter=1500,
+            init="pca",
+            random_state=random_state,
+        )
+    elif method == "umap":
+        try:
+            import umap
+        except ImportError:
+            raise ImportError("UMAP requires the 'umap-learn' package. Install with: pip install umap-learn") from None
+        reducer = umap.UMAP(
+            n_components=dimensions, n_neighbors=n_neighbors, min_dist=min_dist, random_state=random_state, n_jobs=1
+        )
+    elif method == "isomap":
+        from sklearn.manifold import Isomap
+
+        reducer = Isomap(n_components=dimensions, n_neighbors=n_neighbors)
+    elif method == "mds":
+        from sklearn.manifold import MDS
+
+        reducer = MDS(
+            n_components=dimensions,
+            metric_mds=False,
+            random_state=random_state,
+            normalized_stress="auto",
+            n_init=4,  # type: ignore[arg-type]
+            init="random",
+            max_iter=300,
+        )
+    elif method == "spectral":
+        from sklearn.manifold import SpectralEmbedding
+
+        reducer = SpectralEmbedding(
+            n_components=dimensions, n_neighbors=n_neighbors, affinity="nearest_neighbors", random_state=random_state
+        )
+    elif method == "truncated_svd":
+        from sklearn.decomposition import TruncatedSVD
+
+        reducer = TruncatedSVD(n_components=dimensions, random_state=random_state)
+    elif method == "pacmap":
+        try:
+            import pacmap
+        except ImportError:
+            raise ImportError("PaCMAP requires the 'pacmap' package. Install with: pip install pacmap") from None
+        # PaCMAP prints warnings to stderr during __init__ — suppress them
+        with contextlib.redirect_stderr(io.StringIO()):
+            reducer = pacmap.PaCMAP(n_components=dimensions, n_neighbors=n_neighbors, random_state=random_state)
+    elif method == "phate":
+        try:
+            import phate
+        except ImportError:
+            raise ImportError("PHATE requires the 'phate' package. Install with: pip install phate") from None
+        reducer = phate.PHATE(n_components=dimensions, knn=n_neighbors, random_state=random_state, verbose=False)
+    else:
+        raise ValueError(f"Unknown reduction method: {method}")
+
+    return np.asarray(reducer.fit_transform(embeddings)).astype(np.float64)
 
 
 def f_out(n_i: NDArray[Any], x: NDArray[Any]) -> NDArray[Any]:
@@ -566,27 +705,52 @@ def image_to_hwc(image: NDArray[Any]) -> NDArray[Any]:
     return image  # Assume already HWC
 
 
-def calculate_subplot_grid(num_items: int, cols_per_row: int = 3) -> tuple[int, int]:
+def calculate_subplot_grid(
+    num_items: int,
+    cols_per_row: int = 3,
+    aspect_ratio: float | None = None,
+) -> tuple[int, int]:
     """
     Calculate grid layout for subplots.
+
+    When *aspect_ratio* is provided the layout is chosen so that the
+    ``cols / rows`` ratio best matches the target, producing a grid that
+    fills the available figure shape with minimal wasted space.
 
     Parameters
     ----------
     num_items : int
-        Number of items to plot
+        Number of items to plot.
     cols_per_row : int, default 3
-        Number of columns per row
+        Maximum columns per row (used when *aspect_ratio* is None).
+    aspect_ratio : float or None, default None
+        Target width / height ratio of the figure.  When given, the
+        function picks the ``(rows, cols)`` combination that minimises
+        ``abs(cols / rows - aspect_ratio)`` while fitting all items.
 
     Returns
     -------
-    tuple
-        (rows, cols) for subplot grid
+    tuple[int, int]
+        ``(rows, cols)`` for the subplot grid.
     """
     import math
 
-    rows = math.ceil(num_items / cols_per_row)
-    cols = min(num_items, cols_per_row)
-    return rows, cols
+    if aspect_ratio is None:
+        rows = math.ceil(num_items / cols_per_row)
+        cols = min(num_items, cols_per_row)
+        return rows, cols
+
+    best: tuple[int, int] = (num_items, 1)
+    best_diff = float("inf")
+
+    for r in range(1, num_items + 1):
+        c = math.ceil(num_items / r)
+        diff = abs(c / r - aspect_ratio)
+        if diff < best_diff:
+            best_diff = diff
+            best = (r, c)
+
+    return best
 
 
 def validate_class_names(measures: NDArray[Any], class_names: Sequence[str] | None) -> None:
