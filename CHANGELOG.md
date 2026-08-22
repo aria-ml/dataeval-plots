@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.9] - 2026-08-22
+
+- [fix] Support scikit-learn 1.7 in the MDS reducer
+- [misc] Update CI with shared components
+- [fix] Widen figsize typing annotations to float dimensions
+
 ## [0.0.8] - 2026-03-25
 
 - [feat] Add project plot function for plotting embeddings
