@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import io
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
@@ -153,15 +154,28 @@ def reduce_embeddings(
     elif method == "mds":
         from sklearn.manifold import MDS
 
-        reducer = MDS(
-            n_components=dimensions,
-            metric_mds=False,
-            random_state=random_state,
-            normalized_stress="auto",
-            n_init=4,  # type: ignore[arg-type]
-            init="random",
-            max_iter=300,
-        )
+        # scikit-learn 1.8 renamed the non-metric switch from `metric` to `metric_mds`
+        # -- `metric` now names the distance metric -- and moved `init` from fit() onto
+        # the constructor. 1.8 requires Python >=3.11, so on the 3.10 leg the lockfile
+        # necessarily resolves 1.7.x, where neither new spelling exists.
+        #
+        # Ask the signature rather than compare version strings: it needs no extra
+        # dependency and tests exactly the thing being depended on. Omitting `init` on
+        # 1.7.x is not a behaviour change -- smacof already initialises randomly from
+        # `random_state` when init is left unset.
+        mds_kwargs: dict[str, Any] = {
+            "n_components": dimensions,
+            "random_state": random_state,
+            "normalized_stress": "auto",
+            "n_init": 4,
+            "max_iter": 300,
+        }
+        if "metric_mds" in inspect.signature(MDS.__init__).parameters:
+            mds_kwargs["metric_mds"] = False
+            mds_kwargs["init"] = "random"
+        else:
+            mds_kwargs["metric"] = False
+        reducer = MDS(**mds_kwargs)
     elif method == "spectral":
         from sklearn.manifold import SpectralEmbedding
 
