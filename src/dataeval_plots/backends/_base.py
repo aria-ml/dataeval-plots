@@ -32,7 +32,7 @@ class PlottingBackend(Protocol):
         self,
         output: PlottableBalance,
         *,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -43,7 +43,7 @@ class PlottingBackend(Protocol):
         self,
         output: PlottableDiversity,
         *,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -54,7 +54,7 @@ class PlottingBackend(Protocol):
         self,
         output: PlottableSufficiency,
         *,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
@@ -66,7 +66,7 @@ class PlottingBackend(Protocol):
         self,
         output: PlottableStats,
         *,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         log: bool = True,
         channel_limit: int | None = None,
         channel_index: int | Iterable[int] | None = None,
@@ -77,7 +77,7 @@ class PlottingBackend(Protocol):
         self,
         output: PlottableDriftMVDC,
         *,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> Any: ...
 
     @overload
@@ -85,7 +85,7 @@ class PlottingBackend(Protocol):
         self,
         output: Dataset,
         *,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         indices: Sequence[int],
         images_per_row: int = 3,
         show_labels: bool = False,
@@ -94,9 +94,9 @@ class PlottingBackend(Protocol):
     ) -> Any: ...
 
     @overload
-    def plot(self, output: PlottableType, *, figsize: tuple[int, int] | None = None, **kwargs: Any) -> Any: ...
+    def plot(self, output: PlottableType, *, figsize: tuple[float, float] | None = None, **kwargs: Any) -> Any: ...
 
-    def plot(self, output: PlottableType, *, figsize: tuple[int, int] | None = None, **kwargs: Any) -> Any:
+    def plot(self, output: PlottableType, *, figsize: tuple[float, float] | None = None, **kwargs: Any) -> Any:
         """
         Plot output using this backend.
 
@@ -104,7 +104,7 @@ class PlottingBackend(Protocol):
         ----------
         output : Plottable
             DataEval output to visualize (must implement Plottable protocol)
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height). If None, uses backend defaults.
         **kwargs
             Backend-specific parameters
@@ -123,7 +123,7 @@ class PlottingBackend(Protocol):
         label_names: Mapping[int, str] | None = None,
         method: str = "pca",
         dimensions: Literal[2, 3] = 2,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         title: str | None = None,
     ) -> Any:
         """
@@ -141,7 +141,7 @@ class PlottingBackend(Protocol):
             Name of the reduction method used (for title/display).
         dimensions : {2, 3}, default 2
             Number of dimensions in the embeddings.
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height).
         title : str or None, default None
             Plot title. If None, auto-generated from method name.
@@ -160,7 +160,7 @@ class PlottingBackend(Protocol):
         labels: NDArray[Any] | None = None,
         label_names: Mapping[int, str] | None = None,
         dimensions: Literal[2, 3] = 2,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         title: str | None = None,
     ) -> Any:
         """
@@ -179,7 +179,7 @@ class PlottingBackend(Protocol):
             Mapping from integer labels to display names.
         dimensions : {2, 3}, default 2
             Number of dimensions in the embeddings.
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height) for the entire grid.
         title : str or None, default None
             Overall title for the grid figure.
@@ -199,7 +199,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
     to abstract methods that subclasses must implement.
     """
 
-    def plot(self, output: PlottableType, *, figsize: tuple[int, int] | None = None, **kwargs: Any) -> Any:
+    def plot(self, output: PlottableType, *, figsize: tuple[float, float] | None = None, **kwargs: Any) -> Any:
         """
         Route to appropriate plot method based on output plot_type.
 
@@ -207,7 +207,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
         ----------
         output : Plottable
             DataEval output object implementing Plottable protocol
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height). If None, uses backend defaults.
         **kwargs
             Plotting parameters
@@ -244,7 +244,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
     def _plot_balance(
         self,
         output: PlottableBalance,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | Any | None = None,
         col_labels: Sequence[Any] | Any | None = None,
         plot_classwise: bool = False,
@@ -256,7 +256,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
     def _plot_diversity(
         self,
         output: PlottableDiversity,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | Any | None = None,
         col_labels: Sequence[Any] | Any | None = None,
         plot_classwise: bool = False,
@@ -268,7 +268,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
     def _plot_sufficiency(
         self,
         output: PlottableSufficiency,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
@@ -281,7 +281,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
     def _plot_stats(
         self,
         output: PlottableStats,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         log: bool = True,
         channel_limit: int | None = None,
         channel_index: int | Iterable[int] | None = None,
@@ -293,7 +293,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> Any:
         """Plot drift MVDC output."""
         ...
@@ -303,7 +303,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
         dataset: Dataset,
         indices: Sequence[int],
         images_per_row: int = 3,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         show_labels: bool = False,
         show_metadata: bool = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
@@ -322,7 +322,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
             Indices of images to plot from the dataset
         images_per_row : int, default 3
             Number of images to display per row
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height)
         show_labels : bool, default False
             Whether to display labels extracted from targets
@@ -431,7 +431,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
         label_names: Mapping[int, str] | None = None,
         method: str = "pca",
         dimensions: Literal[2, 3] = 2,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         title: str | None = None,
     ) -> Figure:
         """
@@ -452,7 +452,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
             Name of the reduction method used (for title/display).
         dimensions : {2, 3}, default 2
             Number of dimensions in the embeddings.
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height).
         title : str or None, default None
             Plot title. If None, auto-generated from method name.
@@ -524,7 +524,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
         labels: NDArray[Any] | None = None,
         label_names: Mapping[int, str] | None = None,
         dimensions: Literal[2, 3] = 2,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         title: str | None = None,
     ) -> Figure:
         """
@@ -542,7 +542,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
             Mapping from integer labels to display names.
         dimensions : {2, 3}, default 2
             Number of dimensions in the embeddings.
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height) for the entire grid.
         title : str or None, default None
             Overall title for the grid figure.

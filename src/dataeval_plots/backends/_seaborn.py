@@ -33,7 +33,7 @@ class SeabornBackend(BasePlottingBackend):
     def _plot_balance(
         self,
         output: PlottableBalance,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -98,7 +98,7 @@ class SeabornBackend(BasePlottingBackend):
     def _plot_diversity(
         self,
         output: PlottableDiversity,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -181,7 +181,7 @@ class SeabornBackend(BasePlottingBackend):
     def _plot_sufficiency(
         self,
         output: PlottableSufficiency,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
@@ -235,7 +235,7 @@ class SeabornBackend(BasePlottingBackend):
     def _plot_stats(
         self,
         output: PlottableStats,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         log: bool = True,
         channel_limit: int | None = None,
         channel_index: int | Iterable[int] | None = None,
@@ -360,7 +360,7 @@ class SeabornBackend(BasePlottingBackend):
         label_names: Mapping[int, str] | None = None,
         method: str = "pca",
         dimensions: Literal[2, 3] = 2,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         title: str | None = None,
     ) -> Figure:
         """
@@ -378,7 +378,7 @@ class SeabornBackend(BasePlottingBackend):
             Name of the reduction method used (for title/display).
         dimensions : {2, 3}, default 2
             Number of dimensions in the embeddings.
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height).
         title : str or None, default None
             Plot title. If None, auto-generated from method name.
@@ -403,7 +403,7 @@ class SeabornBackend(BasePlottingBackend):
         labels: NDArray[Any] | None = None,
         label_names: Mapping[int, str] | None = None,
         dimensions: Literal[2, 3] = 2,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         title: str | None = None,
     ) -> Figure:
         """Plot a grid of projected embeddings with Seaborn styling."""
@@ -419,7 +419,7 @@ class SeabornBackend(BasePlottingBackend):
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> Figure:
         """
         Render the roc_auc metric over the train/test data using Seaborn styling.

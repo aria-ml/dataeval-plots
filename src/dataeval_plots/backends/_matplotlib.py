@@ -46,7 +46,7 @@ class MatplotlibBackend(BasePlottingBackend):
         xlabel: str = "",
         ylabel: str = "",
         cbarlabel: str = "",
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> Figure:
         """
         Plots a formatted heatmap.
@@ -164,7 +164,7 @@ class MatplotlibBackend(BasePlottingBackend):
         log: bool = True,
         xlabel: str = "values",
         ylabel: str = "counts",
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> Figure:
         """
         Plots a formatted histogram.
@@ -220,7 +220,7 @@ class MatplotlibBackend(BasePlottingBackend):
         ch_mask: Sequence[bool] | None = None,
         xlabel: str = "values",
         ylabel: str = "counts",
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> Figure:
         """
         Plots a formatted channel-wise histogram.
@@ -290,7 +290,7 @@ class MatplotlibBackend(BasePlottingBackend):
     def _plot_balance(
         self,
         output: PlottableBalance,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -333,7 +333,7 @@ class MatplotlibBackend(BasePlottingBackend):
     def _plot_diversity(
         self,
         output: PlottableDiversity,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -458,7 +458,7 @@ class MatplotlibBackend(BasePlottingBackend):
         show_asymptote: bool,
         plots: list[Figure],
         reference_outputs: Sequence[Any],
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> None:
         from matplotlib import pyplot as plt
 
@@ -506,7 +506,7 @@ class MatplotlibBackend(BasePlottingBackend):
         plots: list[Figure],
         reference_outputs: Sequence[Any],
         class_names: Sequence[str] | None = None,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> None:
         from matplotlib import pyplot as plt
 
@@ -552,7 +552,7 @@ class MatplotlibBackend(BasePlottingBackend):
     def _plot_sufficiency(
         self,
         output: PlottableSufficiency,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
@@ -624,7 +624,7 @@ class MatplotlibBackend(BasePlottingBackend):
     def _plot_stats(
         self,
         output: PlottableStats,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         log: bool = True,
         channel_limit: int | None = None,
         channel_index: int | Iterable[int] | None = None,
@@ -660,7 +660,7 @@ class MatplotlibBackend(BasePlottingBackend):
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> Figure:
         """
         Render the roc_auc metric over the train/test data in relation to the threshold.

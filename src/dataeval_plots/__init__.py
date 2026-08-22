@@ -39,7 +39,7 @@ __all__ = [
 def plot(
     output: PlottableBalance,
     /,
-    figsize: tuple[int, int] | None = None,
+    figsize: tuple[float, float] | None = None,
     backend: str | None = None,
     *,
     row_labels: Sequence[Any] | NDArray[Any] | None = None,
@@ -52,7 +52,7 @@ def plot(
 def plot(
     output: PlottableDiversity,
     /,
-    figsize: tuple[int, int] | None = None,
+    figsize: tuple[float, float] | None = None,
     backend: str | None = None,
     *,
     row_labels: Sequence[Any] | NDArray[Any] | None = None,
@@ -65,7 +65,7 @@ def plot(
 def plot(
     output: PlottableSufficiency,
     /,
-    figsize: tuple[int, int] | None = None,
+    figsize: tuple[float, float] | None = None,
     backend: str | None = None,
     *,
     class_names: Sequence[str] | None = None,
@@ -79,7 +79,7 @@ def plot(
 def plot(
     output: PlottableStats,
     /,
-    figsize: tuple[int, int] | None = None,
+    figsize: tuple[float, float] | None = None,
     backend: str | None = None,
     *,
     log: bool = True,
@@ -92,7 +92,7 @@ def plot(
 def plot(
     output: PlottableDriftMVDC,
     /,
-    figsize: tuple[int, int] | None = None,
+    figsize: tuple[float, float] | None = None,
     backend: str | None = None,
 ) -> Any: ...
 
@@ -101,7 +101,7 @@ def plot(
 def plot(
     output: Dataset,
     /,
-    figsize: tuple[int, int] | None = None,
+    figsize: tuple[float, float] | None = None,
     backend: str | None = None,
     *,
     indices: Sequence[int],
@@ -116,14 +116,14 @@ def plot(
 def plot(
     output: PlottableType,
     /,
-    figsize: tuple[int, int] | None = None,
+    figsize: tuple[float, float] | None = None,
     backend: str | None = None,
     **kwargs: Any,
 ) -> Any: ...
 
 
 def plot(
-    output: PlottableType, /, figsize: tuple[int, int] | None = None, backend: str | None = None, **kwargs: Any
+    output: PlottableType, /, figsize: tuple[float, float] | None = None, backend: str | None = None, **kwargs: Any
 ) -> Any:
     """
     Plot any DataEval output object.
@@ -132,7 +132,7 @@ def plot(
     ----------
     output : Plottable
         DataEval output object to visualize (must implement Plottable protocol)
-    figsize : tuple[int, int] or None, default None
+    figsize : tuple[float, float] or None, default None
         Figure size in inches (width, height). If None, uses backend defaults.
     backend : str or None, default None
         Plotting backend ('matplotlib', 'seaborn', 'plotly', 'altair').
@@ -182,7 +182,7 @@ def project(
     dimensions: Literal[2, 3] = 2,
     labels: ArrayLike | None = None,
     label_names: Mapping[int, str] | None = None,
-    figsize: tuple[int, int] | None = None,
+    figsize: tuple[float, float] | None = None,
     backend: str | None = None,
     title: str | None = None,
     perplexity: float = 30.0,
@@ -223,7 +223,7 @@ def project(
         Class labels for coloring points, shape ``(N,)``.
     label_names : dict[int, str] or None, default None
         Mapping from integer labels to display names for the legend.
-    figsize : tuple[int, int] or None, default None
+    figsize : tuple[float, float] or None, default None
         Figure size in inches (width, height).
     backend : str or None, default None
         Plotting backend (``"matplotlib"``, ``"seaborn"``, ``"plotly"``,

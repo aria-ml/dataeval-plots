@@ -38,7 +38,7 @@ class PlotlyBackend(BasePlottingBackend):
     def _plot_balance(
         self,
         output: PlottableBalance,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -50,7 +50,7 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableBalance
             The balance output object to plot
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in pixels (width, height). If None, defaults to 600x600.
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
@@ -143,7 +143,7 @@ class PlotlyBackend(BasePlottingBackend):
     def _plot_diversity(
         self,
         output: PlottableDiversity,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         row_labels: Sequence[Any] | NDArray[Any] | None = None,
         col_labels: Sequence[Any] | NDArray[Any] | None = None,
         plot_classwise: bool = False,
@@ -155,7 +155,7 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableDiversity
             The diversity output object to plot
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in pixels (width, height). If None, defaults to 600x600 for heatmap or 700x500 for bar chart.
         row_labels : ArrayLike or None, default None
             List/Array containing the labels for rows in the histogram
@@ -258,7 +258,7 @@ class PlotlyBackend(BasePlottingBackend):
     def _plot_sufficiency(
         self,
         output: PlottableSufficiency,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         class_names: Sequence[str] | None = None,
         show_error_bars: bool = True,
         show_asymptote: bool = True,
@@ -271,7 +271,7 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableSufficiency
             The sufficiency output object to plot
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in pixels (width, height). If None, defaults to 700x500.
         class_names : Sequence[str] | None, default None
             List of class names
@@ -448,7 +448,7 @@ class PlotlyBackend(BasePlottingBackend):
     def _plot_stats(
         self,
         output: PlottableStats,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         log: bool = True,
         channel_limit: int | None = None,
         channel_index: int | Iterable[int] | None = None,
@@ -460,7 +460,7 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableStats
             The stats output object to plot
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in pixels (width, height). If None, defaults to 300 * cols x 300 * rows.
         log : bool, default True
             If True, plots the histograms on a logarithmic scale.
@@ -592,7 +592,7 @@ class PlotlyBackend(BasePlottingBackend):
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
     ) -> Any:  # go.Figure
         """
         Render the roc_auc metric over the train/test data in relation to the threshold.
@@ -601,7 +601,7 @@ class PlotlyBackend(BasePlottingBackend):
         ----------
         output : PlottableDriftMVDC
             The drift MVDC output object to plot
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in pixels (width, height). If None, defaults to 900x500.
 
         Returns
@@ -718,7 +718,7 @@ class PlotlyBackend(BasePlottingBackend):
         dataset: Dataset,
         indices: Sequence[int],
         images_per_row: int = 3,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         show_labels: bool = False,
         show_metadata: bool = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
@@ -734,7 +734,7 @@ class PlotlyBackend(BasePlottingBackend):
             Indices of images to plot from the dataset
         images_per_row : int, default 3
             Number of images to display per row
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in pixels (width, height). If None, defaults to 1000x1000.
         show_labels : bool, default False
             Whether to display labels extracted from targets
@@ -959,7 +959,7 @@ class PlotlyBackend(BasePlottingBackend):
         label_names: Mapping[int, str] | None = None,
         method: str = "pca",
         dimensions: Literal[2, 3] = 2,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         title: str | None = None,
     ) -> Any:  # go.Figure
         """
@@ -977,7 +977,7 @@ class PlotlyBackend(BasePlottingBackend):
             Name of the reduction method used (for title/display).
         dimensions : {2, 3}, default 2
             Number of dimensions in the embeddings.
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height).
         title : str or None, default None
             Plot title. If None, auto-generated from method name.
@@ -1019,7 +1019,7 @@ class PlotlyBackend(BasePlottingBackend):
         labels: NDArray[Any] | None = None,
         label_names: Mapping[int, str] | None = None,
         dimensions: Literal[2, 3] = 2,
-        figsize: tuple[int, int] | None = None,
+        figsize: tuple[float, float] | None = None,
         title: str | None = None,
     ) -> Any:  # go.Figure
         """
@@ -1037,7 +1037,7 @@ class PlotlyBackend(BasePlottingBackend):
             Mapping from integer labels to display names.
         dimensions : {2, 3}, default 2
             Number of dimensions in the embeddings.
-        figsize : tuple[int, int] or None, default None
+        figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height) for the entire grid.
         title : str or None, default None
             Overall title for the grid figure.

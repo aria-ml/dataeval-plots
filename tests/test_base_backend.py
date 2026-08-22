@@ -64,7 +64,7 @@ class MockBackend(BasePlottingBackend):
         dataset: Dataset,
         indices: Any,
         images_per_row: int,
-        figsize: tuple[int, int],
+        figsize: tuple[float, float],
     ) -> None:
         pass
 
