@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pytest
+from conftest import MockPlottableStats
 from matplotlib.figure import Figure
 from test_backend_base import BackendTestBase
 
@@ -61,3 +63,19 @@ class TestSeabornBackend(BackendTestBase):
             assert len(result.axes) == 3
         else:
             assert len(result.axes) == expected_image_count
+
+    def test_plot_stats_multi_channel_non_channelwise_metric(
+        self,
+        backend: SeabornBackend,
+    ) -> None:
+        """Test multi-channel stats with a 2D metric not in CHANNELWISE_METRICS."""
+        stats = MockPlottableStats(
+            _factors={
+                "mean": np.random.rand(50, 2),
+                "min": np.random.rand(50, 2),  # not channelwise
+            },
+            _n_channels=2,
+            _channel_mask=None,
+        )
+        result = backend.plot(stats)
+        self.validate_stats_result(result)

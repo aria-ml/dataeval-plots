@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import altair as alt
+import numpy as np
 import pytest
+from conftest import MockPlottableStats
 from test_backend_base import BackendTestBase
 
 from dataeval_plots.backends._altair import AltairBackend
@@ -46,3 +48,19 @@ class TestAltairBackend(BackendTestBase):
         """Validate the result from plotting image grid."""
         # Altair returns a VConcatChart for image grids
         assert isinstance(result, alt.Chart | alt.VConcatChart | alt.HConcatChart)
+
+    def test_plot_stats_multi_channel_non_channelwise_metric(
+        self,
+        backend: AltairBackend,
+    ) -> None:
+        """Test multi-channel stats with a 2D metric not in CHANNELWISE_METRICS."""
+        stats = MockPlottableStats(
+            _factors={
+                "mean": np.random.rand(50, 2),
+                "min": np.random.rand(50, 2),  # not channelwise
+            },
+            _n_channels=2,
+            _channel_mask=None,
+        )
+        result = backend.plot(stats)
+        self.validate_stats_result(result)

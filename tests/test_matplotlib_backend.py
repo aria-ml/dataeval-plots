@@ -6,11 +6,12 @@ from typing import Any
 
 import numpy as np
 import pytest
-from conftest import MockDataset
+from conftest import MockDataset, MockPlottableStats, MockPlottableSufficiency
 from matplotlib.figure import Figure
 from test_backend_base import BackendTestBase
 
 from dataeval_plots.backends._matplotlib import MatplotlibBackend
+from dataeval_plots.backends._shared import reduce_embeddings
 
 
 class TestMatplotlibBackend(BackendTestBase):
@@ -234,3 +235,44 @@ class TestMatplotlibBackend(BackendTestBase):
         assert isinstance(result, Figure)
         assert len(result.axes) == 2
         # Bounding boxes should be drawn even without show_labels=True
+
+    def test_plot_stats_multi_channel_non_channelwise_metric(
+        self,
+        backend: MatplotlibBackend,
+    ) -> None:
+        """Test multi-channel stats with a 2D metric not in CHANNELWISE_METRICS."""
+        stats = MockPlottableStats(
+            _factors={
+                "mean": np.random.rand(50, 2),
+                "min": np.random.rand(50, 2),  # not channelwise
+            },
+            _n_channels=2,
+            _channel_mask=None,
+        )
+        result = backend.plot(stats)
+        self.validate_stats_result(result)
+
+    def test_plot_sufficiency_warns_on_missing_measures(
+        self,
+        backend: MatplotlibBackend,
+    ) -> None:
+        """Test that missing per-run measures triggers a UserWarning."""
+        output = MockPlottableSufficiency(
+            steps=np.array([10, 50, 100, 1000], dtype=np.uint32),
+            averaged_measures={"accuracy": np.array([0.5, 0.65, 0.8, 0.9])},
+            measures={},  # no per-run measures
+            params={"accuracy": np.array([0.5, 0.5, 0.1])},
+        )
+        with pytest.warns(UserWarning):
+            backend.plot(output, show_error_bars=True)
+
+    def test_project_grid_3d_hides_unused_axes(self, backend: MatplotlibBackend) -> None:
+        """3D grid with fewer subplots than grid slots hides the empty axes."""
+        rng = np.random.default_rng(3)
+        emb3d = rng.standard_normal((30, 8))
+        result = backend.project_grid(
+            [reduce_embeddings(emb3d, "pca", dimensions=3) for _ in range(4)],
+            methods=["pca"] * 4,
+            dimensions=3,
+        )
+        assert isinstance(result, Figure)
