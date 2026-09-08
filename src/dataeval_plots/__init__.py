@@ -104,10 +104,10 @@ def plot(
     figsize: tuple[float, float] | None = None,
     backend: str | None = None,
     *,
-    indices: Sequence[int],
+    indices: Sequence[int] | None = None,
     images_per_row: int = 3,
     show_labels: bool = False,
-    show_metadata: bool = False,
+    show_metadata: bool | Sequence[str] = False,
     additional_metadata: Sequence[dict[str, Any]] | None = None,
 ) -> Any: ...
 

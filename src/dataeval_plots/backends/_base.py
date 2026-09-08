@@ -86,10 +86,10 @@ class PlottingBackend(Protocol):
         output: Dataset,
         *,
         figsize: tuple[float, float] | None = None,
-        indices: Sequence[int],
+        indices: Sequence[int] | None = None,
         images_per_row: int = 3,
         show_labels: bool = False,
-        show_metadata: bool = False,
+        show_metadata: bool | Sequence[str] = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
     ) -> Any: ...
 
@@ -301,11 +301,11 @@ class BasePlottingBackend(PlottingBackend, ABC):
     def _plot_image_grid(
         self,
         dataset: Dataset,
-        indices: Sequence[int],
+        indices: Sequence[int] | None = None,
         images_per_row: int = 3,
         figsize: tuple[float, float] | None = None,
         show_labels: bool = False,
-        show_metadata: bool = False,
+        show_metadata: bool | Sequence[str] = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
     ) -> Figure:
         """
@@ -318,16 +318,17 @@ class BasePlottingBackend(PlottingBackend, ABC):
         ----------
         dataset : Dataset
             MAITE-compatible dataset containing images
-        indices : Sequence[int]
-            Indices of images to plot from the dataset
+        indices : Sequence[int] or None, default None
+            Indices of images to plot from the dataset. None plots every item.
         images_per_row : int, default 3
             Number of images to display per row
         figsize : tuple[float, float] or None, default None
             Figure size in inches (width, height)
         show_labels : bool, default False
             Whether to display labels extracted from targets
-        show_metadata : bool, default False
-            Whether to display metadata from the dataset items
+        show_metadata : bool or Sequence[str], default False
+            Whether to display metadata from the dataset items. A sequence of keys
+            displays only those, in the order given.
         additional_metadata : Sequence[dict[str, Any]] or None, default None
             Additional metadata to display for each image (must match length of indices)
 
@@ -346,6 +347,8 @@ class BasePlottingBackend(PlottingBackend, ABC):
             format_label_from_target,
             process_dataset_item_for_display,
         )
+
+        indices = range(len(dataset)) if indices is None else indices
 
         # Validate additional_metadata length
         if additional_metadata is not None and len(additional_metadata) != len(indices):
@@ -413,9 +416,9 @@ class BasePlottingBackend(PlottingBackend, ABC):
                     title_parts.append(label_str)
 
             if show_metadata and metadata:
-                # Format metadata as key: value pairs
-                metadata_strs = [f"{k}: {v}" for k, v in metadata.items()]
-                title_parts.extend(metadata_strs)
+                # Every key, or just the named ones, as key: value pairs
+                keys = metadata if isinstance(show_metadata, bool) else [k for k in show_metadata if k in metadata]
+                title_parts.extend(f"{k}: {metadata[k]}" for k in keys)
 
             # Set title if we have any parts
             if title_parts:

@@ -144,6 +144,20 @@ class TestMatplotlibBackend(BackendTestBase):
         assert "scene" in result.axes[0].get_title()
         assert "outdoor" in result.axes[0].get_title()
 
+    def test_plot_image_grid_with_selected_metadata_keys_and_no_indices(
+        self,
+        backend: MatplotlibBackend,
+    ) -> None:
+        """Named metadata keys title only those, and no indices plots every item."""
+        images = [np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8) for _ in range(3)]
+        metadatas = [{"scene": "outdoor", "time": "day", "id": i} for i in range(3)]
+        dataset = MockDataset(images=images, metadatas=metadatas)
+
+        result = backend._plot_image_grid(dataset, show_metadata=["scene"])
+
+        assert len(result.axes) == 3
+        assert result.axes[0].get_title() == "scene: outdoor"
+
     def test_plot_image_grid_with_additional_metadata(
         self,
         backend: MatplotlibBackend,
