@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.10] - 2026-09-08
+
+- [impr] Add better support for image sequences with labels
+
 ## [0.0.9] - 2026-08-22
 
 - [fix] Support scikit-learn 1.7 in the MDS reducer
