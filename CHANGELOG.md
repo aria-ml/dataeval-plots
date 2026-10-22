@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.11] - 2026-10-22
+
+- [feat] Add the feasibility plot for DataEval's Feasibility evaluator
+
 ## [0.0.10] - 2026-09-08
 
 - [impr] Add better support for image sequences with labels
