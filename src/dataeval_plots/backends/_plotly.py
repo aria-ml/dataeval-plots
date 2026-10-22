@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Literal
 
@@ -9,15 +10,21 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
+from dataeval_plots.backends import _feasibility_layout as layout
 from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
+    FEASIBILITY_COLORS,
+    FEASIBILITY_CONFLICT_TEXT,
+    FeasibilityBand,
     calculate_projection,
     calculate_subplot_grid,
+    feasibility_zones,
     format_label_from_target,
     prepare_balance_data,
     prepare_diversity_data,
     prepare_drift_data,
+    prepare_feasibility_data,
     process_dataset_item_for_display,
     project_steps,
     validate_class_names,
@@ -27,9 +34,138 @@ from dataeval_plots.protocols import (
     PlottableBalance,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableFeasibility,
     PlottableStats,
     PlottableSufficiency,
 )
+
+# Feasibility: the shared layout's inches, drawn at layout.PX pixels per inch
+
+
+def _annotate(fig: Any, n: str, x: float, y: float, text: str, size: float = layout.LABEL_PT, **kwargs: Any) -> None:
+    """Text on band ``n``'s axes (data coordinates unless ``xref`` or ``yref`` say otherwise)."""
+    kwargs = {"xref": f"x{n}", "yref": f"y{n}", "showarrow": False, "font": {}, **kwargs}
+    kwargs["font"] = {"size": layout.px(size), "color": FEASIBILITY_COLORS["ink"], **kwargs["font"]}
+    fig.add_annotation(x=x, y=y, text=text.replace("\n", "<br>"), **kwargs)
+
+
+def _side_note(
+    fig: Any,
+    n: str,
+    x: float,
+    y: float,
+    text: str,
+    prefer_left: bool,
+    x_range: tuple[float, float],
+    ax_w: float,
+    **kwargs: Any,
+) -> None:
+    """Label beside its mark, top at ``y``, on the preferred side unless that leaves the axes."""
+    left, pad = layout.goes_left(x, text, prefer_left, x_range, ax_w), layout.PAD * layout.PX
+    _annotate(
+        fig, n, x, y, text, xanchor="right" if left else "left", yanchor="top", xshift=-pad if left else pad, **kwargs
+    )
+
+
+def _rule(fig: Any, n: str, x: tuple[float, float], y: tuple[float, float], opacity: float = 1.0, **line: Any) -> None:
+    """A line on band ``n``'s axes, from (x[0], y[0]) to (x[1], y[1])."""
+    fig.add_shape(
+        type="line", x0=x[0], x1=x[1], y0=y[0], y1=y[1], xref=f"x{n}", yref=f"y{n}", opacity=opacity, line=line
+    )
+
+
+def _markers(fig: Any, n: str, x: list[float], y: list[float], hover: str | None = None, **kwargs: Any) -> None:
+    """Markers on band ``n``'s axes, unclipped so a mark at the axes' edge stays whole."""
+    skip = {"hoverinfo": "skip"} if hover is None else {"hovertemplate": f"{hover}<extra></extra>"}
+    fig.add_scatter(x=x, y=y, mode="markers", xaxis=f"x{n}", yaxis=f"y{n}", cliponaxis=False, **skip, **kwargs)
+
+
+def _plotly_requirements(fig: Any, n: str, placed: list[layout.Placed], y0: float, y_label: float) -> None:
+    """Dashed requirement lines from ``y0`` up to their labels' level, labels on top."""
+    ink, ys = FEASIBILITY_COLORS["ink"], []
+    for x, text, ha, level in placed:
+        y = y_label + level * layout.LEVEL
+        ys.append(y)
+        _rule(fig, n, (x, x), (y0, y), color=ink, width=layout.px(1.2), dash="4px,3px")
+        shift = layout.PAD * layout.PX if ha == "right" else -layout.PAD * layout.PX
+        _annotate(fig, n, x, y + 0.06, text, xanchor=ha, yanchor="bottom", xshift=shift)
+    _markers(fig, n, [p[0] for p in placed], ys, marker={"symbol": "triangle-down", "size": 9, "color": ink})
+
+
+def _plotly_band(fig: Any, n: str, band: FeasibilityBand, ax_w: float, placed: list[layout.Placed]) -> None:
+    """Zones, boundaries and requirement markers of one band."""
+    colors = FEASIBILITY_COLORS
+    lo, hi = band.x_range
+    per_in = (hi - lo) / ax_w
+    y0, y1 = layout.BOUNDARY, layout.BOUNDARY + layout.BAR
+    for kind, start, end, label in feasibility_zones(band):
+        fig.add_shape(
+            type="rect",
+            x0=start,
+            x1=end,
+            y0=y0,
+            y1=y1,
+            xref=f"x{n}",
+            yref=f"y{n}",
+            fillcolor=colors[f"{kind}_fill"],
+            line={"color": "white", "width": layout.px(1.5)},
+            layer="below",
+        )
+        fit = layout.zone_label(band, start, end, label, per_in)
+        if fit:
+            _annotate(fig, n, fit[0], y0 + layout.BAR / 2, fit[1])
+    if band.conflict:
+        line = {"color": colors["warning"], "width": layout.px(2), "dash": "dash"}
+        fig.add_shape(type="rect", x0=lo, x1=hi, y0=y0, y1=y1, xref=f"x{n}", yref=f"y{n}", line=line)
+        conflict = f"<b>{FEASIBILITY_CONFLICT_TEXT}</b>"
+        _annotate(fig, n, (lo + hi) / 2, y0 + layout.BAR / 2, conflict, size=11, bgcolor="white", borderpad=1)
+    for x, text, kind, left in band.boundary_labels:
+        color = colors["demonstrated" if kind == "lower" else "ruled_out"]
+        _rule(fig, n, (x, x), (y0 - 0.06, y1 + 0.06), color=color, width=layout.px(2.5))
+        _side_note(fig, n, x, y0 - 0.1, text, left, band.x_range, ax_w)
+    _plotly_requirements(fig, n, placed, y0, y1 + 0.2)
+
+
+def _plotly_evidence(
+    fig: Any,
+    n: str,
+    band: FeasibilityBand,
+    x_range: tuple[float, float],
+    ax_w: float,
+    placed: list[layout.Placed],
+) -> None:
+    """One row per source: a tick at its bound, a dot at its observed score, both labeled."""
+    colors, muted = FEASIBILITY_COLORS, FEASIBILITY_COLORS["ink_muted"]
+    pad = layout.PAD * layout.PX
+    rows_top, ys = layout.evidence_rows(band)
+    _plotly_requirements(fig, n, placed, 0, rows_top + 0.12)
+    aside = {"xref": f"x{n} domain", "xanchor": "left", "xshift": pad, "font": {"color": muted}}  # no marks
+    aside |= {"bgcolor": "white", "borderpad": 1}
+    if band.evidence_note:
+        _annotate(fig, n, 0, rows_top - layout.ROW / 2, band.evidence_note, **aside)
+    for y, row in zip(ys, band.evidence):
+        # Bound labeled below, observed above, so the two never collide; a white backing keeps them legible over
+        # the requirement lines
+        ink = {"font": {"color": muted if row.faint else colors["ink"]}, "bgcolor": "white", "borderpad": 1}
+        source = textwrap.fill(row.label, layout.SOURCE_WRAP)
+        _annotate(
+            fig, n, 0, y, source, xref=f"x{n} domain", xanchor="right", align="right", xshift=-pad, font=ink["font"]
+        )
+        if row.bound is None:
+            _annotate(fig, n, 0, y, row.bound_label, **aside)
+            continue
+        color = colors["demonstrated" if row.bound_type == "lower" else "ruled_out"]
+        opacity = 0.35 if row.faint else 1.0
+        # A tick marker, not a line shape, which the axes would clip at their edge
+        tick = {"symbol": "line-ns", "size": 0.24 * layout.PX, "line": {"color": color, "width": layout.px(2.5)}}
+        _markers(fig, n, [row.bound], [y], f"{row.label}: {row.bound_label}", marker=tick, opacity=opacity)
+        _side_note(fig, n, row.bound, y - 0.14, row.bound_label, row.bound_left, x_range, ax_w, **ink)
+        if row.observed is not None and row.observed_label is not None:
+            dot = {"size": 11, "color": color}
+            _rule(fig, n, (row.bound, row.observed), (y, y), opacity, color=color, width=layout.px(3))
+            hover = f"{row.label}: {row.observed_label}"
+            _markers(fig, n, [row.observed], [y], hover, marker=dot, opacity=opacity)
+            _side_note(fig, n, row.observed, y + 0.29, row.observed_label, not row.bound_left, x_range, ax_w, **ink)
 
 
 class PlotlyBackend(BasePlottingBackend):
@@ -1091,4 +1227,115 @@ class PlotlyBackend(BasePlottingBackend):
 
         self._clean_projection_axes(fig, dimensions, n_scenes=n)
 
+        return fig
+
+    def _plot_feasibility(
+        self,
+        output: PlottableFeasibility,
+        figsize: tuple[float, float] | None = None,
+        plot_evidence: bool = False,
+    ) -> Any:  # go.Figure
+        """
+        Plot each quantity's requirements as a band of demonstrated, unknown and ruled-out zones.
+
+        Parameters
+        ----------
+        output : PlottableFeasibility
+            The feasibility output object to plot
+        figsize : tuple[float, float] or None, default None
+            Figure size in inches (width, height), drawn at 100 pixels per inch. If None, 9 inches wide and as tall
+            as the bands need. An explicit height stretches or squeezes the bands to fit it.
+        plot_evidence : bool, default False
+            Whether to plot each source's observed score and confidence bound instead of the bands
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+        """
+        import plotly.graph_objects as go
+
+        ink, muted = FEASIBILITY_COLORS["ink"], FEASIBILITY_COLORS["ink_muted"]
+        width = figsize[0] if figsize else 9.0
+        gutter, ax_w, height, blocks = layout.blocks(prepare_feasibility_data(output), plot_evidence, width)
+
+        # One pair of axes per band, laid out top-down in paper coordinates; y in inches, so offsets are exact
+        fig = go.Figure()
+        top = height
+        for i, (band, x_range, xlabel, ax_h, placed, texts) in enumerate(blocks):
+            n = "" if i == 0 else str(i + 1)
+            top -= layout.TITLE + ax_h
+            fig.update_layout(
+                {
+                    f"xaxis{n}": {
+                        "domain": [gutter / width, 1 - layout.MARGIN / width],
+                        "anchor": f"y{n}",
+                        "range": list(x_range),
+                        "tickformat": ".0%",
+                        "title": {
+                            "text": f"<b>{xlabel}</b>",
+                            "font": {"size": layout.px(11), "color": ink},
+                            "standoff": 8,
+                        },
+                        "tickfont": {"size": layout.px(layout.LABEL_PT), "color": muted},
+                        "ticks": "outside",
+                        "ticklen": 4,
+                        "tickcolor": muted,
+                        "showline": True,
+                        "linecolor": muted,
+                        "showgrid": plot_evidence,
+                        "gridcolor": "#e4e3df",
+                        "zeroline": False,
+                    },
+                    f"yaxis{n}": {
+                        "domain": [top / height, (top + ax_h) / height],
+                        "anchor": f"x{n}",
+                        "range": [0, ax_h],
+                        "visible": False,
+                        "fixedrange": True,
+                    },
+                }
+            )
+            _annotate(
+                fig,
+                n,
+                0,
+                1,
+                band.subtitle,
+                xref=f"x{n} domain",
+                yref=f"y{n} domain",
+                xanchor="left",
+                yanchor="bottom",
+                yshift=6,
+                font={"color": muted},
+            )
+            if plot_evidence:
+                _plotly_evidence(fig, n, band, x_range, ax_w, placed)
+            else:
+                _plotly_band(fig, n, band, ax_w, placed)
+            top -= layout.XAXIS
+            for text, size, color in texts:
+                _annotate(
+                    fig,
+                    n,
+                    layout.MARGIN / width,
+                    top / height,
+                    text,
+                    size,
+                    xref="paper",
+                    yref="paper",
+                    xanchor="left",
+                    yanchor="top",
+                    align="left",
+                    font={"color": color},
+                )
+                top -= layout.text_height(text)
+            top -= layout.GAP
+
+        fig.update_layout(
+            width=width * layout.PX,
+            height=(figsize[1] if figsize else height) * layout.PX,
+            margin={"l": 0, "r": 0, "t": 0, "b": 0},
+            template="plotly_white",
+            showlegend=False,
+        )
         return fig

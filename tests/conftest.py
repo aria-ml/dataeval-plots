@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -9,6 +10,15 @@ import numpy as np
 import polars as pl
 import pytest
 from numpy.typing import NDArray
+
+
+@pytest.fixture(autouse=True)
+def _close_figures():
+    """Close the figures a test opens, so they don't pile up across the suite."""
+    yield
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
 
 
 @dataclass
@@ -113,6 +123,25 @@ class MockPlottableDriftMVDC:
 
     def meta(self) -> MockExecutionMetadata:
         return MockExecutionMetadata(arguments={})
+
+
+@dataclass
+class MockPlottableFeasibility:
+    """Mock feasibility output for testing."""
+
+    determinations: pl.DataFrame
+    evidence_table: pl.DataFrame
+    alpha: float = 0.05
+
+    def aggregate_by_evidence(self) -> pl.DataFrame:
+        return self.evidence_table
+
+    @property
+    def plot_type(self) -> Literal["feasibility"]:
+        return "feasibility"
+
+    def meta(self) -> MockExecutionMetadata:
+        return MockExecutionMetadata(arguments={}, state={"alpha": self.alpha})
 
 
 @dataclass
@@ -355,4 +384,225 @@ def mock_dataset() -> MockDataset:
         images=images,
         dataset_id="test_dataset",
         index2label={0: "cat", 1: "dog", 2: "bird"},
+    )
+
+
+def _target_spec(threshold: float, scope: str, metric: str, class_name: str | None, aggregation: str | None) -> str:
+    """Canonical target JSON as DataEval writes it: sorted keys, nulls kept, versioned."""
+    spec = {
+        "aggregation": aggregation,
+        "ap_functional": "population_ap_integral" if metric == "ap" else None,
+        "class_name": class_name,
+        "fp_budget": None,
+        "iou": None,
+        "metric": metric,
+        "scope": scope,
+        "task": "IC",
+        "threshold": threshold,
+        "version": 1,
+    }
+    return json.dumps(spec, sort_keys=True, separators=(",", ":"))
+
+
+def _target(
+    threshold: float,
+    determination: str,
+    witness: float | None = None,
+    ceiling: float | None = None,
+    scope: str = "full_input",
+    metric: str = "accuracy",
+    class_name: str | None = None,
+    aggregation: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "threshold": threshold,
+        "judged_scope": scope,
+        "determination": determination,
+        "witness": witness,
+        "ceiling": ceiling,
+        "metric": metric,
+        "spec": (class_name, aggregation),
+    }
+
+
+def _source(
+    source: str,
+    bound: float | None,
+    observed: float | None = None,
+    scope: str = "full_input",
+    bound_type: str = "lower",
+    n: int | None = 5000,
+    unit: str = "image",
+) -> dict[str, Any]:
+    return {
+        "source": source,
+        "evidence_id": f"{source.replace(' ', '_')}/v1",
+        "information_scope": scope,
+        "unit": unit,
+        "bound_type": bound_type,
+        "observed": observed,
+        "bound": bound,
+        "n": n,
+        "state": "unavailable" if bound is None else "informative",
+        "alpha": 0.01,
+        "basis": "empirical_bernstein",
+    }
+
+
+# Enum dtypes where DataEval's FeasibilityOutput uses them, with its categories
+_METRIC = pl.Enum(["accuracy", "ap", "recall_at_fp", "mota"])
+_SCOPE = pl.Enum(["full_input", "fixed_representation", "partition_restricted"])
+_DETERMINATION = pl.Enum(
+    [
+        "evidence_conflict",
+        "demonstrated_feasible",
+        "infeasible_under_recorded_assumptions",
+        "not_ruled_out",
+        "unresolved",
+    ]
+)
+_DETERMINATION_SCHEMA = {
+    "target_spec": pl.String,
+    "metric": _METRIC,
+    "threshold": pl.Float64,
+    "judged_scope": _SCOPE,
+    "determination": _DETERMINATION,
+    "ceiling": pl.Float64,
+    "ceiling_scope": _SCOPE,
+    "witness": pl.Float64,
+    "witness_source": pl.String,
+}
+_EVIDENCE_SCHEMA = {
+    "target_spec": pl.String,
+    "metric": _METRIC,
+    "threshold": pl.Float64,
+    "source": pl.String,
+    "evidence_id": pl.String,
+    "information_scope": _SCOPE,
+    "unit": pl.String,
+    "bound_type": pl.Enum(["lower", "upper"]),
+    "observed": pl.Float64,
+    "bound": pl.Float64,
+    "n": pl.Int64,
+    "state": pl.String,
+    "alpha": pl.Float64,
+    "basis": pl.String,
+}
+
+
+def _feasibility(targets: list[dict[str, Any]], sources: list[dict[str, Any]]) -> MockPlottableFeasibility:
+    """Every source bounds every target; the deciding witness and ceiling are looked up by bound."""
+    rows, evidence = [], []
+    for target in targets:
+        target = dict(target)
+        spec = _target_spec(target["threshold"], target["judged_scope"], target["metric"], *target.pop("spec"))
+        by_bound = {(s["bound_type"], s["bound"]): s for s in sources if s["bound"] is not None}
+        witness = by_bound.get(("lower", target["witness"]))
+        ceiling = by_bound.get(("upper", target["ceiling"]))
+        rows.append(
+            {
+                "target_spec": spec,
+                **target,
+                "ceiling_scope": ceiling and ceiling["information_scope"],
+                "witness_source": witness and witness["evidence_id"],
+            }
+        )
+        keys = {"target_spec": spec, "metric": target["metric"], "threshold": target["threshold"]}
+        evidence += [{**keys, **s} for s in sources]
+    return MockPlottableFeasibility(
+        determinations=pl.DataFrame(rows, schema=_DETERMINATION_SCHEMA),
+        evidence_table=pl.DataFrame(evidence, schema=_EVIDENCE_SCHEMA),
+        alpha=0.05,
+    )
+
+
+_HOW_TO_SOURCES = [
+    _source("your model", 0.957, observed=0.969),
+    _source("built-in k-NN", 0.923, observed=0.940, scope="fixed_representation"),
+    _source("built-in linear probe", 0.882, observed=0.900, scope="fixed_representation"),
+    _source("group-based ceiling", 0.721, scope="partition_restricted", bound_type="upper", n=400),
+]
+
+
+@pytest.fixture
+def mock_feasibility_how_to() -> MockPlottableFeasibility:
+    """The how-to: 95% demonstrated by the user's model, 99% unresolved, a narrower group-based ceiling."""
+    return _feasibility(
+        [_target(0.95, "demonstrated_feasible", witness=0.957), _target(0.99, "unresolved", witness=0.957)],
+        _HOW_TO_SOURCES,
+    )
+
+
+@pytest.fixture
+def mock_feasibility_ruled_out() -> MockPlottableFeasibility:
+    """A repeated-labels ceiling at 93.0% rules out 95%; the witness demonstrates 90%."""
+    return _feasibility(
+        [
+            _target(0.90, "demonstrated_feasible", witness=0.912, ceiling=0.93),
+            _target(0.95, "infeasible_under_recorded_assumptions", witness=0.912, ceiling=0.93),
+        ],
+        [_source("your model", 0.912, observed=0.925), _source("repeated labels", 0.93, bound_type="upper", n=800)],
+    )
+
+
+@pytest.fixture
+def mock_feasibility_conflict() -> MockPlottableFeasibility:
+    """The witness's lower bound (94.0%) sits above the ceiling's upper bound (92.0%)."""
+    return _feasibility(
+        [_target(0.95, "evidence_conflict", witness=0.94, ceiling=0.92)],
+        [_source("your model", 0.94, observed=0.952), _source("repeated labels", 0.92, bound_type="upper", n=800)],
+    )
+
+
+@pytest.fixture
+def mock_feasibility_empty() -> MockPlottableFeasibility:
+    """No witness and no ceiling: the requirement stays unresolved."""
+    return _feasibility([_target(0.95, "unresolved")], [])
+
+
+@pytest.fixture
+def mock_feasibility_two_bands() -> MockPlottableFeasibility:
+    """The same threshold judged for whole-image models and for embedding-only models."""
+    return _feasibility(
+        [
+            _target(0.95, "demonstrated_feasible", witness=0.957),
+            _target(0.95, "unresolved", witness=0.923, scope="fixed_representation"),
+        ],
+        _HOW_TO_SOURCES[:2],
+    )
+
+
+@pytest.fixture
+def mock_feasibility_low_threshold() -> MockPlottableFeasibility:
+    """A 50% requirement, far below every bound."""
+    return _feasibility([_target(0.5, "demonstrated_feasible", witness=0.957)], _HOW_TO_SOURCES[:1])
+
+
+@pytest.fixture
+def mock_feasibility_ceiling_one() -> MockPlottableFeasibility:
+    """An uninformative repeated-labels ceiling at exactly 100%: it rules nothing out."""
+    return _feasibility(
+        [_target(0.95, "demonstrated_feasible", witness=0.957, ceiling=1.0)],
+        [_source("your model", 0.957, observed=0.969), _source("repeated labels", 1.0, bound_type="upper", n=800)],
+    )
+
+
+@pytest.fixture
+def mock_feasibility_witness_zero() -> MockPlottableFeasibility:
+    """A witness whose lower bound is exactly 0%: it demonstrates nothing."""
+    return _feasibility(
+        [_target(0.95, "unresolved", witness=0.0)],
+        [_source("built-in k-NN", 0.0, observed=0.4, scope="fixed_representation", n=12)],
+    )
+
+
+@pytest.fixture
+def mock_feasibility_per_class_ap() -> MockPlottableFeasibility:
+    """Per-class AP targets: one band per class."""
+    return _feasibility(
+        [
+            _target(0.8, "demonstrated_feasible", witness=0.84, metric="ap", class_name="cat"),
+            _target(0.9, "unresolved", witness=0.84, metric="ap", class_name="dog"),
+        ],
+        [_source("built-in k-NN", 0.84, scope="fixed_representation")],
     )

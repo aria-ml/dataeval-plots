@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 import pytest
 from conftest import MockPlottableStats
 from matplotlib.figure import Figure
-from test_backend_base import BackendTestBase
+from test_backend_base import BackendTestBase, assert_draws
+from test_matplotlib_backend import _feasibility_marks, _texts
 
 from dataeval_plots.backends._seaborn import SeabornBackend
 
@@ -63,6 +65,14 @@ class TestSeabornBackend(BackendTestBase):
             assert len(result.axes) == 3
         else:
             assert len(result.axes) == expected_image_count
+
+    def validate_feasibility_result(
+        self, result: Any, texts: Sequence[str], zones: int, faint: bool = False, outline: bool = False
+    ) -> None:
+        """Validate the result from plotting feasibility: drawn by the matplotlib backend, so checked the same way."""
+        assert isinstance(result, Figure)
+        assert_draws(_texts(result), texts)
+        assert _feasibility_marks(result) == (zones, faint, outline)
 
     def test_plot_stats_multi_channel_non_channelwise_metric(
         self,
