@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 import pytest
 from conftest import MockDataset, MockPlottableStats, MockPlottableSufficiency
 from matplotlib.figure import Figure
-from test_backend_base import BackendTestBase
+from test_backend_base import ZONE_FILLS, BackendTestBase, assert_draws
 
 from dataeval_plots.backends._matplotlib import MatplotlibBackend
 from dataeval_plots.backends._shared import reduce_embeddings
@@ -61,6 +62,14 @@ class TestMatplotlibBackend(BackendTestBase):
             assert len(result.axes) == 3
         else:
             assert len(result.axes) == expected_image_count
+
+    def validate_feasibility_result(
+        self, result: Any, texts: Sequence[str], zones: int, faint: bool = False, outline: bool = False
+    ) -> None:
+        """Validate the result from plotting feasibility."""
+        assert isinstance(result, Figure)
+        assert_draws(_texts(result), texts)
+        assert _feasibility_marks(result) == (zones, faint, outline)
 
     # Override test methods that use private _plot_image_grid method
     def test_plot_image_grid(
@@ -290,3 +299,80 @@ class TestMatplotlibBackend(BackendTestBase):
             dimensions=3,
         )
         assert isinstance(result, Figure)
+
+
+def _texts(fig: Figure) -> list[str]:
+    from matplotlib.text import Text
+
+    return [t.get_text() for t in fig.findobj(Text)]
+
+
+def _feasibility_marks(fig: Figure) -> tuple[int, bool, bool]:
+    """The zone patches, whether any line is drawn faint (alpha 0.35) and whether the dashed outline is drawn."""
+    from matplotlib.colors import to_hex
+    from matplotlib.patches import Rectangle
+
+    patches = [p for ax in fig.axes for p in ax.patches if isinstance(p, Rectangle)]
+    zones = sum(p.get_fill() and to_hex(p.get_facecolor()) in ZONE_FILLS for p in patches)
+    faint = any(line.get_alpha() == 0.35 for ax in fig.axes for line in ax.get_lines())
+    outline = any(not p.get_fill() and p.get_linestyle() == "--" for p in patches)
+    return zones, faint, outline
+
+
+class TestMatplotlibFeasibility:
+    """Feasibility bands and the evidence view."""
+
+    def test_bands(self, mock_feasibility_how_to) -> None:
+        fig = MatplotlibBackend().plot(mock_feasibility_how_to)
+        assert isinstance(fig, Figure)
+        assert len(fig.axes) == 1
+        texts = _texts(fig)
+        assert "Requirements through 95.7% are demonstrated" in texts
+        assert "95.7% lower confidence bound" in texts
+        assert "95% requirement: demonstrated ✓" in texts
+
+    def test_one_axes_per_band(self, mock_feasibility_two_bands) -> None:
+        fig = MatplotlibBackend().plot(mock_feasibility_two_bands)
+        assert len(fig.axes) == 2
+
+    def test_conflict(self, mock_feasibility_conflict) -> None:
+        texts = _texts(MatplotlibBackend().plot(mock_feasibility_conflict))
+        assert "Evidence conflicts: check assumptions" in texts
+        assert not any(t.startswith("Requirements through") for t in texts)
+
+    def test_ruled_out_and_empty(self, mock_feasibility_ruled_out, mock_feasibility_empty) -> None:
+        ruled_out = [t.replace("\n", " ") for t in _texts(MatplotlibBackend().plot(mock_feasibility_ruled_out))]
+        assert "ruled out under the recorded assumptions" in ruled_out
+        assert "unknown" in _texts(MatplotlibBackend().plot(mock_feasibility_empty))
+
+    def test_evidence(self, mock_feasibility_how_to) -> None:
+        fig = MatplotlibBackend().plot(mock_feasibility_how_to, plot_evidence=True)
+        assert isinstance(fig, Figure)
+        texts = _texts(fig)
+        assert "95.7% lower bound" in texts
+        assert "96.9% observed" in texts
+        assert "72.1% upper bound" in texts
+
+    def test_figsize(self, mock_feasibility_how_to) -> None:
+        fig = MatplotlibBackend().plot(mock_feasibility_how_to, figsize=(6, 4))
+        assert tuple(fig.get_size_inches()) == (6, 4)
+
+    def test_axis_edges(self, mock_feasibility_ceiling_one, mock_feasibility_witness_zero) -> None:
+        """A 100% ceiling and a 0% witness draw without a zero-width zone."""
+        for output in (mock_feasibility_ceiling_one, mock_feasibility_witness_zero):
+            for plot_evidence in (False, True):
+                assert isinstance(MatplotlibBackend().plot(output, plot_evidence=plot_evidence), Figure)
+        assert "100.0% upper confidence bound" not in _texts(MatplotlibBackend().plot(mock_feasibility_ceiling_one))
+
+    def test_evidence_legend(self, mock_feasibility_how_to) -> None:
+        fig = MatplotlibBackend().plot(mock_feasibility_how_to, plot_evidence=True)
+        texts = [t.replace("\n", " ") for t in _texts(fig)]
+        assert (
+            "● observed on the evaluation images · ┃ lower confidence bound for new images from the same population"
+            " · ┃ upper confidence bound"
+        ) in texts
+
+    def test_per_class_ap_titles(self, mock_feasibility_per_class_ap) -> None:
+        texts = _texts(MatplotlibBackend().plot(mock_feasibility_per_class_ap))
+        assert "Required AP for class cat" in texts
+        assert "Required AP for class dog" in texts

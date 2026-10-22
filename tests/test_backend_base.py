@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import pytest
@@ -11,11 +13,25 @@ from conftest import (
     MockPlottableBalance,
     MockPlottableDiversity,
     MockPlottableDriftMVDC,
+    MockPlottableFeasibility,
     MockPlottableStats,
     MockPlottableSufficiency,
+    _feasibility,
+    _source,
+    _target,
 )
 
 from dataeval_plots.backends._base import BasePlottingBackend
+from dataeval_plots.backends._shared import FEASIBILITY_COLORS
+
+ZONE_FILLS = {FEASIBILITY_COLORS[f"{kind}_fill"] for kind in ("demonstrated", "unknown", "ruled_out")}
+
+
+def assert_draws(drawn: Iterable[str], texts: Sequence[str]) -> None:
+    """Assert each of ``texts`` is drawn, folding line breaks and markup to single spaces."""
+    folded = {" ".join(re.sub(r"<[^>]+>", " ", t).split()) for t in drawn}
+    missing = [t for t in texts if t not in folded]
+    assert not missing, f"not drawn: {missing}"
 
 
 class BackendTestBase(ABC):
@@ -79,6 +95,18 @@ class BackendTestBase(ABC):
 
         Should check that result is of the correct type for this backend
         and contains the expected number of images.
+        """
+        pass
+
+    @abstractmethod
+    def validate_feasibility_result(
+        self, result: Any, texts: Sequence[str], zones: int, faint: bool = False, outline: bool = False
+    ) -> None:
+        """Validate the result from plotting feasibility.
+
+        Should check that result is of the correct type for this backend; that it draws each of ``texts`` (compared
+        with line breaks folded to spaces); that it draws ``zones`` zone fills; whether any evidence mark is drawn
+        faint (a restricted source); and whether the dashed conflict outline is drawn.
         """
         pass
 
@@ -277,3 +305,154 @@ class BackendTestBase(ABC):
         indices = [0]
         result = backend.plot(mock_dataset, indices=indices, images_per_row=3)
         self.validate_image_grid_result(result, expected_image_count=1)
+
+    def test_plot_feasibility_how_to(
+        self,
+        backend: BasePlottingBackend,
+        mock_feasibility_how_to: MockPlottableFeasibility,
+    ) -> None:
+        """A demonstrated zone, an unknown zone, both requirements, the caption and the narrower-scope note."""
+        result = backend.plot(mock_feasibility_how_to)
+        self.validate_feasibility_result(
+            result,
+            [
+                "Models may use the whole image",
+                "Required accuracy",
+                "Requirements through 95.7% are demonstrated",
+                "unknown",
+                "95.7% lower confidence bound",
+                "95% requirement: demonstrated ✓",
+                "99% requirement: not enough evidence ?",
+                "Your model scored 96.9% on the 5,000 evaluation images. Allowing for sampling uncertainty gives a"
+                " lower confidence bound of 95.7%. Bounds concern new images drawn from the same population."
+                " Confidence is 95% jointly across this evaluation.",
+                "The group-based ceiling (72.1%) does not limit models that distinguish individual images.",
+            ],
+            zones=2,
+        )
+
+    def test_plot_feasibility_ruled_out(
+        self,
+        backend: BasePlottingBackend,
+        mock_feasibility_ruled_out: MockPlottableFeasibility,
+    ) -> None:
+        """A ruled-out zone above the ceiling, with its boundary label and caption line."""
+        result = backend.plot(mock_feasibility_ruled_out)
+        self.validate_feasibility_result(
+            result,
+            [
+                "ruled out under the recorded assumptions",
+                "93.0% upper confidence bound",
+                "91.2% lower confidence bound",
+                "90% requirement: demonstrated ✓",
+                "95% requirement: ruled out under the recorded assumptions ✗",
+                "Your model scored 92.5% on the 5,000 evaluation images. Allowing for sampling uncertainty gives a"
+                " lower confidence bound of 91.2%. Under the recorded assumptions, requirements above 93.0% are"
+                " ruled out at the stated confidence. Bounds concern new images drawn from the same population."
+                " Confidence is 95% jointly across this evaluation.",
+            ],
+            zones=3,
+        )
+
+    def test_plot_feasibility_conflict(
+        self,
+        backend: BasePlottingBackend,
+        mock_feasibility_conflict: MockPlottableFeasibility,
+    ) -> None:
+        """No zones: the warning text, both clashing bounds and the conflict caption."""
+        result = backend.plot(mock_feasibility_conflict)
+        self.validate_feasibility_result(
+            result,
+            [
+                "Evidence conflicts: check assumptions",
+                "92.0% upper confidence bound",
+                "94.0% lower confidence bound",
+                "95% requirement",
+                "The bounds disagree. Check the assumptions, including whether evaluation images entered training."
+                " Even when assumptions hold, the probability that any bound fails is at most 5%.",
+            ],
+            zones=0,
+            outline=True,
+        )
+
+    def test_plot_feasibility_evidence_view(
+        self,
+        backend: BasePlottingBackend,
+        mock_feasibility_how_to: MockPlottableFeasibility,
+    ) -> None:
+        """One row per source with its observed score and bound, the requirements and the legend line."""
+        result = backend.plot(mock_feasibility_how_to, plot_evidence=True)
+        self.validate_feasibility_result(
+            result,
+            [
+                "Accuracy",
+                "Your model",
+                "96.9% observed",
+                "95.7% lower bound",
+                "Built-in k-NN",
+                "72.1% upper bound",
+                "95% required",
+                "99% required",
+                "● observed on the evaluation images · ┃ lower confidence bound for new images from the same population"
+                " · ┃ upper confidence bound",
+            ],
+            zones=0,
+            faint=True,
+        )
+
+    def test_plot_feasibility_restricted_only_evidence(self, backend: BasePlottingBackend) -> None:
+        """Review Focus 5: an evidence view whose only source is a narrower ceiling draws it faint, labeled with its
+        scope."""
+        output = _feasibility(
+            [_target(0.95, "unresolved")],
+            [_source("group-based ceiling", 0.721, scope="partition_restricted", bound_type="upper", n=400)],
+        )
+        result = backend.plot(output, plot_evidence=True)
+        self.validate_feasibility_result(
+            result,
+            [
+                "Group-based ceiling (models that give one answer per group)",
+                "72.1% upper bound",
+                "95% required",
+                "The group-based ceiling (72.1%) does not limit models that distinguish individual images.",
+            ],
+            zones=0,
+            faint=True,
+        )
+
+    @pytest.mark.parametrize("plot_evidence", [False, True])
+    def test_plot_feasibility_axis_edges(
+        self,
+        backend: BasePlottingBackend,
+        mock_feasibility_low_threshold: MockPlottableFeasibility,
+        mock_feasibility_witness_zero: MockPlottableFeasibility,
+        mock_feasibility_empty: MockPlottableFeasibility,
+        plot_evidence: bool,
+    ) -> None:
+        """A far threshold, a bound at the axis edge and a band with no bounds all draw their requirements."""
+        for output, marker, zones in (
+            (mock_feasibility_low_threshold, "50% requirement: demonstrated ✓", 2),
+            (mock_feasibility_witness_zero, "95% requirement: not enough evidence ?", 1),
+            (mock_feasibility_empty, "95% requirement: not enough evidence ?", 1),
+        ):
+            result = backend.plot(output, plot_evidence=plot_evidence)
+            text = marker[:3] + " required" if plot_evidence else marker
+            self.validate_feasibility_result(result, [text], zones=0 if plot_evidence else zones)
+
+    def test_plot_feasibility_no_bound_evidence(self, backend: BasePlottingBackend) -> None:
+        """A source with no bound is listed as such, and a band with no bound at all says so instead of empty axes."""
+        output = _feasibility(
+            [_target(0.9, "unresolved")],
+            [_source("group-based ceiling", None, scope="partition_restricted", bound_type="upper", n=None)],
+        )
+        result = backend.plot(output, plot_evidence=True)
+        self.validate_feasibility_result(
+            result,
+            [
+                "No bound is available yet.",
+                "Group-based ceiling (models that give one answer per group)",
+                "no bound available",
+                "90% required",
+            ],
+            zones=0,
+        )

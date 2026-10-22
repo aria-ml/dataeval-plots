@@ -12,6 +12,7 @@ The protocol hierarchy:
   - PlottableSufficiency
   - PlottableStats
   - PlottableDriftMVDC
+  - PlottableFeasibility
 """
 
 from __future__ import annotations
@@ -119,13 +120,13 @@ class Plottable(Protocol):
     """
 
     @property
-    def plot_type(self) -> Literal["balance", "diversity", "sufficiency", "stats", "drift_mvdc"]:
+    def plot_type(self) -> Literal["balance", "diversity", "sufficiency", "stats", "drift_mvdc", "feasibility"]:
         """Return the plot type identifier for routing to appropriate plot function.
 
         Returns
         -------
         str
-            One of: 'balance', 'diversity', 'sufficiency', 'stats', 'drift_mvdc'
+            One of: 'balance', 'diversity', 'sufficiency', 'stats', 'drift_mvdc', 'feasibility'
         """
         ...
 
@@ -286,7 +287,47 @@ class PlottableDriftMVDC(Plottable, Protocol):
     def plot_type(self) -> Literal["drift_mvdc"]: ...
 
 
+@runtime_checkable
+class PlottableFeasibility(Plottable, Protocol):
+    """Protocol for feasibility plot outputs.
+
+    Required attributes:
+    - determinations: One row per target (DataFrame)
+    - aggregate_by_evidence(): One row per evidence item and target (DataFrame)
+    - meta().state["alpha"]: The call's error budget
+    - plot_type -> 'feasibility'
+
+    DataFrame structures:
+    - determinations columns: target_spec, metric, threshold, judged_scope, determination, ceiling,
+      ceiling_scope, witness, witness_source
+    - aggregate_by_evidence() columns: target_spec, metric, threshold, source, evidence_id,
+      information_scope, unit, bound_type, observed, bound, n, state, alpha, basis
+    """
+
+    @property
+    def determinations(self) -> pl.DataFrame: ...
+    def aggregate_by_evidence(self) -> pl.DataFrame:
+        """Evidence as a polars DataFrame.
+
+        Returns
+        -------
+        pl.DataFrame
+            One row per evidence item and target: each source's bound on the target, and its observed score
+            where one exists
+        """
+        ...
+
+    @property
+    def plot_type(self) -> Literal["feasibility"]: ...
+
+
 # Type alias for all plottable types
 PlottableType = (
-    Dataset | PlottableBalance | PlottableDiversity | PlottableSufficiency | PlottableStats | PlottableDriftMVDC
+    Dataset
+    | PlottableBalance
+    | PlottableDiversity
+    | PlottableSufficiency
+    | PlottableStats
+    | PlottableDriftMVDC
+    | PlottableFeasibility
 )

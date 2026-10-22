@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Literal
 
@@ -9,12 +10,17 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
+from dataeval_plots.backends import _feasibility_layout as layout
 from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
+    FEASIBILITY_COLORS,
+    FEASIBILITY_CONFLICT_TEXT,
+    FeasibilityBand,
     calculate_projection,
     draw_bounding_boxes,
     extract_boxes_and_labels,
+    feasibility_zones,
     format_label_from_target,
     image_to_base64_png,
     image_to_hwc,
@@ -25,6 +31,7 @@ from dataeval_plots.backends._shared import (
     prepare_balance_data,
     prepare_diversity_data,
     prepare_drift_data,
+    prepare_feasibility_data,
     project_steps,
     validate_class_names,
 )
@@ -33,9 +40,148 @@ from dataeval_plots.protocols import (
     PlottableBalance,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableFeasibility,
     PlottableStats,
     PlottableSufficiency,
 )
+
+# Feasibility: one layer per mark, positioned in the band's data units (y in inches) like the matplotlib backend.
+# DejaVu Sans, as matplotlib, where installed: the layout is measured in it and it has every glyph used.
+_FONT = "DejaVu Sans, sans-serif"
+
+
+def _mark(layers: list[Any], axes: tuple[Any, Any], mark: str, row: dict[str, Any], **props: Any) -> None:
+    """Draw ``mark`` once at ``row``'s x and y on the band's ``axes``, with its x2, y2 and text if given."""
+    import altair as alt
+
+    x, y = axes
+    channels = {k: "text:N" if k == "text" else k for k in ("x2", "y2", "text") if k in row}
+    layers.append(getattr(alt.Chart(alt.Data(values=[row])), f"mark_{mark}")(**props).encode(x=x, y=y, **channels))
+
+
+def _text(
+    layers: list[Any],
+    axes: tuple[Any, Any],
+    x: float,
+    y: float,
+    text: str,
+    size: float = layout.LABEL_PT,
+    backing: float | None = None,
+    **props: Any,
+) -> None:
+    """Text on the band's axes, centered unless ``align`` or ``baseline`` say otherwise; given the x units per inch
+    as ``backing``, a white box behind it keeps it legible over lines."""
+    lines, line_h = text.count("\n") + 1, layout.px(size) * 1.25
+    align, baseline = props.setdefault("align", "center"), props.setdefault("baseline", "middle")
+    if backing is not None:
+        bold = 1.1 if props.get("fontWeight") == "bold" else 1.0  # measured at regular weight
+        w, h = layout.text_width(text, size) * bold + 0.04, lines * line_h / layout.PX
+        x0 = x - {"left": 0.02, "center": w / 2, "right": w - 0.02}[align] * backing
+        y0 = y - {"top": h, "middle": h / 2, "bottom": 0}[baseline]
+        _mark(layers, axes, "rect", {"x": x0, "x2": x0 + w * backing, "y": y0, "y2": y0 + h}, color="white")
+    # Vega puts the first line, not the block, at a middle baseline
+    dy = -(lines - 1) * line_h / 2 if baseline == "middle" else 0
+    props = {"color": FEASIBILITY_COLORS["ink"], "fontSize": layout.px(size), "lineHeight": line_h, "dy": dy, **props}
+    _mark(layers, axes, "text", {"x": x, "y": y, "text": text}, lineBreak="\n", font=_FONT, **props)
+
+
+def _side(x: float, text: str, prefer_left: bool, x_range: tuple[float, float], ax_w: float) -> tuple[float, str]:
+    """Where a label beside its mark starts and how it aligns: the preferred side, unless that leaves the axes."""
+    pad = layout.PAD * (x_range[1] - x_range[0]) / ax_w
+    return (x - pad, "right") if layout.goes_left(x, text, prefer_left, x_range, ax_w) else (x + pad, "left")
+
+
+def _altair_requirements(
+    layers: list[Any],
+    axes: tuple[Any, Any],
+    placed: list[layout.Placed],
+    per_in: float,
+    y0: float,
+    y_label: float,
+) -> None:
+    """Dashed requirement lines from ``y0`` up to their labels' level, labels on top."""
+    ink = FEASIBILITY_COLORS["ink"]
+    for x, text, ha, level in placed:
+        y = y_label + level * layout.LEVEL
+        _mark(
+            layers, axes, "rule", {"x": x, "y": y0, "y2": y}, color=ink, strokeWidth=layout.px(1.2), strokeDash=[4, 3]
+        )
+        _mark(
+            layers, axes, "point", {"x": x, "y": y}, shape="triangle-down", filled=True, size=60, color=ink, opacity=1
+        )
+        dx = layout.PAD * per_in if ha == "right" else -layout.PAD * per_in
+        _text(layers, axes, x + dx, y + 0.06, text, align=ha, baseline="bottom")
+
+
+def _altair_band(
+    layers: list[Any],
+    axes: tuple[Any, Any],
+    band: FeasibilityBand,
+    ax_w: float,
+    placed: list[layout.Placed],
+) -> None:
+    """Zones, boundaries and requirement markers of one band."""
+    colors = FEASIBILITY_COLORS
+    lo, hi = band.x_range
+    per_in = (hi - lo) / ax_w
+    y0, y1 = layout.BOUNDARY, layout.BOUNDARY + layout.BAR
+    for kind, start, end, label in feasibility_zones(band):
+        zone = {"x": start, "x2": end, "y": y0, "y2": y1}
+        _mark(layers, axes, "rect", zone, color=colors[f"{kind}_fill"], stroke="white", strokeWidth=layout.px(1.5))
+        fit = layout.zone_label(band, start, end, label, per_in)
+        if fit:
+            _text(layers, axes, fit[0], y0 + layout.BAR / 2, fit[1])
+    if band.conflict:
+        dashed = {"stroke": colors["warning"], "strokeWidth": layout.px(2), "strokeDash": [6, 4]}
+        _mark(layers, axes, "rect", {"x": lo, "x2": hi, "y": y0, "y2": y1}, fillOpacity=0, **dashed)
+    for x, text, kind, left in band.boundary_labels:
+        color = colors["demonstrated" if kind == "lower" else "ruled_out"]
+        _mark(layers, axes, "rule", {"x": x, "y": y0 - 0.06, "y2": y1 + 0.06}, color=color, strokeWidth=layout.px(2.5))
+        at, align = _side(x, text, left, band.x_range, ax_w)
+        _text(layers, axes, at, y0 - 0.1, text, align=align, baseline="top")
+    _altair_requirements(layers, axes, placed, per_in, y0, y1 + 0.2)
+    if band.conflict:  # over the requirement and boundary lines
+        center = ((lo + hi) / 2, y0 + layout.BAR / 2)
+        _text(layers, axes, *center, FEASIBILITY_CONFLICT_TEXT, 11, per_in, fontWeight="bold")
+
+
+def _altair_evidence(
+    layers: list[Any],
+    axes: tuple[Any, Any],
+    band: FeasibilityBand,
+    x_range: tuple[float, float],
+    ax_w: float,
+    placed: list[layout.Placed],
+) -> None:
+    """One row per source: a tick at its bound, a dot at its observed score, both labeled."""
+    colors, muted = FEASIBILITY_COLORS, FEASIBILITY_COLORS["ink_muted"]
+    per_in = (x_range[1] - x_range[0]) / ax_w
+    rows_top, ys = layout.evidence_rows(band)
+    _altair_requirements(layers, axes, placed, per_in, 0, rows_top + 0.12)
+    at = x_range[0] + layout.PAD * per_in  # text in place of marks
+    if band.evidence_note:
+        _text(
+            layers, axes, at, rows_top - layout.ROW / 2, band.evidence_note, backing=per_in, align="left", color=muted
+        )
+    for y, row in zip(ys, band.evidence):
+        # Bound labeled below, observed above, so the two never collide; a white backing keeps them legible over
+        # the requirement lines
+        ink = {"color": muted if row.faint else colors["ink"], "backing": per_in}
+        source = textwrap.fill(row.label, layout.SOURCE_WRAP)
+        _text(layers, axes, x_range[0] - 0.1 * per_in, y, source, align="right", color=ink["color"])
+        if row.bound is None:
+            _text(layers, axes, at, y, row.bound_label, backing=per_in, align="left", color=muted)
+            continue
+        color = colors["demonstrated" if row.bound_type == "lower" else "ruled_out"]
+        mark = {"color": color, "opacity": 0.35 if row.faint else 1.0}
+        _mark(layers, axes, "rule", {"x": row.bound, "y": y - 0.12, "y2": y + 0.12}, strokeWidth=layout.px(2.5), **mark)
+        side, align = _side(row.bound, row.bound_label, row.bound_left, x_range, ax_w)
+        _text(layers, axes, side, y - 0.14, row.bound_label, align=align, baseline="top", **ink)
+        if row.observed is not None and row.observed_label is not None:
+            _mark(layers, axes, "rule", {"x": row.bound, "x2": row.observed, "y": y}, strokeWidth=layout.px(3), **mark)
+            _mark(layers, axes, "circle", {"x": row.observed, "y": y}, size=100, **mark)
+            side, align = _side(row.observed, row.observed_label, not row.bound_left, x_range, ax_w)
+            _text(layers, axes, side, y + 0.29, row.observed_label, align=align, baseline="top", **ink)
 
 
 class AltairBackend(BasePlottingBackend):
@@ -1017,3 +1163,98 @@ class AltairBackend(BasePlottingBackend):
             grid = grid.properties(title=title)
 
         return grid
+
+    def _plot_feasibility(
+        self,
+        output: PlottableFeasibility,
+        figsize: tuple[float, float] | None = None,
+        plot_evidence: bool = False,
+    ) -> Any:  # alt.VConcatChart
+        """
+        Plot each quantity's requirements as a band of demonstrated, unknown and ruled-out zones.
+
+        Parameters
+        ----------
+        output : PlottableFeasibility
+            The feasibility output object to plot
+        figsize : tuple[float, float] or None, default None
+            Figure size in inches (width, height), drawn at 100 pixels per inch. If None, 9 inches wide and as tall
+            as the bands need. An explicit height stretches or squeezes the band views to meet it; captions keep
+            their height.
+        plot_evidence : bool, default False
+            Whether to plot each source's observed score and confidence bound instead of the bands
+
+        Returns
+        -------
+        alt.VConcatChart
+            One band chart and its caption per quantity, stacked
+        """
+        import altair as alt
+
+        ink, muted = FEASIBILITY_COLORS["ink"], FEASIBILITY_COLORS["ink_muted"]
+        width = figsize[0] if figsize else 9.0
+        gutter, ax_w, height, blocks = layout.blocks(prepare_feasibility_data(output), plot_evidence, width)
+        # Only the band views stretch, so the rest keeps its height and the total meets the requested one
+        views = sum(block[3] for block in blocks)
+        stretch = max(figsize[1] - (height - views), 0.1) / views if figsize else 1.0
+        view = alt.ViewBackground(stroke=None)  # per chart, so the result stays composable
+
+        charts = []
+        for band, x_range, xlabel, ax_h, placed, texts in blocks:
+            axis = alt.Axis(
+                format=".0%",
+                tickCount=max(2, round(ax_w / 1.3)),  # about matplotlib's tick density
+                tickMinStep=0.01,
+                title=xlabel,
+                titleFont=_FONT,
+                titleFontSize=layout.px(11),
+                titleFontWeight="bold",
+                titleColor=ink,
+                labelFont=_FONT,
+                labelFontSize=layout.px(layout.LABEL_PT),
+                labelColor=muted,
+                tickColor=muted,
+                domainColor=muted,
+                grid=plot_evidence,
+                gridColor="#e4e3df",
+            )
+            axes = (
+                alt.X("x:Q", scale=alt.Scale(domain=list(x_range), nice=False, zero=False), axis=axis),
+                alt.Y("y:Q", scale=alt.Scale(domain=[0, ax_h], nice=False, zero=False), axis=None),
+            )
+            layers: list[Any] = []
+            if plot_evidence:
+                _altair_evidence(layers, axes, band, x_range, ax_w, placed)
+            else:
+                _altair_band(layers, axes, band, ax_w, placed)
+            title = alt.TitleParams(
+                band.subtitle,
+                anchor="start",
+                frame="group",
+                font=_FONT,
+                fontSize=layout.px(10),
+                fontWeight="normal",
+                color=muted,
+            )
+            size = {"width": ax_w * layout.PX, "height": ax_h * layout.PX * stretch}
+            charts.append(alt.layer(*layers).properties(title=title, view=view, **size))
+
+            # Below the axes, from the figure margin: the evidence legend, the caption paragraph, then the notes
+            lines, top = [], 0.0
+            for text, points, color in texts:
+                style = {
+                    "font": _FONT,
+                    "fontSize": layout.px(points),
+                    "color": color,
+                    "lineHeight": layout.LINE * layout.PX,
+                }
+                x, y = alt.value(-(gutter - layout.MARGIN) * layout.PX), alt.value(top * layout.PX)
+                lines.append(
+                    alt.Chart(alt.Data(values=[{"text": text}]))
+                    .mark_text(align="left", baseline="top", lineBreak="\n", **style)
+                    .encode(x=x, y=y, text="text:N")
+                )
+                top += layout.text_height(text)
+            charts.append(alt.layer(*lines).properties(width=ax_w * layout.PX, height=top * layout.PX, view=view))
+
+        return alt.vconcat(*charts, spacing=10)

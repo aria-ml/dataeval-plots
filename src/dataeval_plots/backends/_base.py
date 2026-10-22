@@ -15,6 +15,7 @@ from dataeval_plots.protocols import (
     PlottableBalance,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableFeasibility,
     PlottableStats,
     PlottableSufficiency,
     PlottableType,
@@ -78,6 +79,15 @@ class PlottingBackend(Protocol):
         output: PlottableDriftMVDC,
         *,
         figsize: tuple[float, float] | None = None,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableFeasibility,
+        *,
+        figsize: tuple[float, float] | None = None,
+        plot_evidence: bool = False,
     ) -> Any: ...
 
     @overload
@@ -237,6 +247,8 @@ class BasePlottingBackend(PlottingBackend, ABC):
             return self._plot_drift_mvdc(cast(PlottableDriftMVDC, output), figsize=figsize, **kwargs)
         if plot_type == "stats":
             return self._plot_stats(cast(PlottableStats, output), figsize=figsize, **kwargs)
+        if plot_type == "feasibility":
+            return self._plot_feasibility(cast(PlottableFeasibility, output), figsize=figsize, **kwargs)
 
         raise NotImplementedError(f"Plotting not implemented for plot_type '{plot_type}'")
 
@@ -296,6 +308,16 @@ class BasePlottingBackend(PlottingBackend, ABC):
         figsize: tuple[float, float] | None = None,
     ) -> Any:
         """Plot drift MVDC output."""
+        ...
+
+    @abstractmethod
+    def _plot_feasibility(
+        self,
+        output: PlottableFeasibility,
+        figsize: tuple[float, float] | None = None,
+        plot_evidence: bool = False,
+    ) -> Any:
+        """Plot feasibility output."""
         ...
 
     def _plot_image_grid(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
@@ -9,16 +10,22 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from numpy.typing import NDArray
 
+from dataeval_plots.backends import _feasibility_layout as layout
 from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
+    FEASIBILITY_COLORS,
+    FEASIBILITY_CONFLICT_TEXT,
+    FeasibilityBand,
     calculate_projection,
     calculate_subplot_grid,
+    feasibility_zones,
     normalize_reference_outputs,
     plot_drift_on_axis,
     prepare_balance_data,
     prepare_diversity_data,
     prepare_drift_data,
+    prepare_feasibility_data,
     project_steps,
     validate_class_names,
 )
@@ -26,6 +33,7 @@ from dataeval_plots.protocols import (
     PlottableBalance,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableFeasibility,
     PlottableStats,
     PlottableSufficiency,
 )
@@ -33,6 +41,122 @@ from dataeval_plots.protocols import (
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+
+_BACKING = {"facecolor": "white", "edgecolor": "none", "pad": 1}  # behind feasibility labels that cross lines
+
+
+def _side_text(
+    ax: Axes,
+    x: float,
+    y: float,
+    text: str,
+    prefer_left: bool,
+    x_range: tuple[float, float],
+    ax_w: float,
+    **kwargs: Any,
+) -> None:
+    """Label beside its mark, top at ``y``, on the preferred side unless that leaves the axes."""
+    pad = layout.PAD * (x_range[1] - x_range[0]) / ax_w
+    left = layout.goes_left(x, text, prefer_left, x_range, ax_w)
+    ax.text(
+        x - pad if left else x + pad,
+        y,
+        text,
+        ha="right" if left else "left",
+        va="top",
+        fontsize=layout.LABEL_PT,
+        **kwargs,
+    )
+
+
+def _draw_requirements(ax: Axes, placed: list[layout.Placed], per_in: float, y0: float, y_label: float) -> None:
+    """Dashed requirement lines from ``y0`` up to their labels' level, labels on top."""
+    ink = FEASIBILITY_COLORS["ink"]
+    for x, text, ha, level in placed:
+        y = y_label + level * layout.LEVEL
+        ax.plot([x, x], [y0, y], color=ink, linestyle=(0, (4, 3)), linewidth=1.2)
+        ax.plot([x], [y], marker="v", color=ink, markersize=6)
+        dx = layout.PAD * per_in if ha == "right" else -layout.PAD * per_in
+        ax.text(x + dx, y + 0.06, text, ha=ha, va="bottom", fontsize=layout.LABEL_PT, color=ink)
+
+
+def _draw_band(ax: Axes, band: FeasibilityBand, ax_w: float, placed: list[layout.Placed]) -> None:
+    """Zones, boundaries and requirement markers of one band."""
+    from matplotlib.patches import Rectangle
+
+    colors, ink = FEASIBILITY_COLORS, FEASIBILITY_COLORS["ink"]
+    lo, hi = band.x_range
+    per_in = (hi - lo) / ax_w
+    y0, y1 = layout.BOUNDARY, layout.BOUNDARY + layout.BAR
+    ax.set_yticks([])
+    for kind, start, end, label in feasibility_zones(band):
+        fill = colors[f"{kind}_fill"]
+        ax.add_patch(Rectangle((start, y0), end - start, layout.BAR, facecolor=fill, edgecolor="white", lw=1.5))
+        fit = layout.zone_label(band, start, end, label, per_in)
+        if fit:
+            ax.text(fit[0], y0 + layout.BAR / 2, fit[1], ha="center", va="center", fontsize=layout.LABEL_PT, color=ink)
+    if band.conflict:
+        outline = Rectangle(
+            (lo, y0), hi - lo, layout.BAR, fill=False, edgecolor=colors["warning"], linestyle="--", lw=2
+        )
+        ax.add_patch(outline)
+        ax.text(
+            (lo + hi) / 2,
+            y0 + layout.BAR / 2,
+            FEASIBILITY_CONFLICT_TEXT,
+            ha="center",
+            va="center",
+            fontsize=11,
+            fontweight="bold",
+            color=ink,
+            bbox=_BACKING,
+        )
+    for x, text, kind, left in band.boundary_labels:
+        ax.plot(
+            [x, x], [y0 - 0.06, y1 + 0.06], color=colors["demonstrated" if kind == "lower" else "ruled_out"], lw=2.5
+        )
+        _side_text(ax, x, y0 - 0.1, text, left, band.x_range, ax_w, color=ink)
+    _draw_requirements(ax, placed, per_in, y0, y1 + 0.2)
+
+
+def _draw_evidence(
+    ax: Axes,
+    band: FeasibilityBand,
+    x_range: tuple[float, float],
+    ax_w: float,
+    placed: list[layout.Placed],
+) -> None:
+    """One row per source: a tick at its bound, a dot at its observed score, both labeled."""
+    colors, muted = FEASIBILITY_COLORS, FEASIBILITY_COLORS["ink_muted"]
+    lo, hi = x_range
+    per_in = (hi - lo) / ax_w
+    rows_top, ys = layout.evidence_rows(band)
+    ax.grid(axis="x", color="#e4e3df", linewidth=0.8)
+    ax.set_axisbelow(True)
+    _draw_requirements(ax, placed, per_in, 0, rows_top + 0.12)
+    aside = {"ha": "left", "va": "center", "fontsize": layout.LABEL_PT, "color": muted, "bbox": _BACKING}  # no marks
+    if band.evidence_note:
+        ax.text(lo + layout.PAD * per_in, rows_top - layout.ROW / 2, band.evidence_note, **aside)
+    for y, row in zip(ys, band.evidence):
+        if row.bound is None:
+            ax.text(lo + layout.PAD * per_in, y, row.bound_label, **aside)
+            continue
+        color = colors["demonstrated" if row.bound_type == "lower" else "ruled_out"]
+        mark = {"color": color, "alpha": 0.35 if row.faint else 1.0}
+        mark["clip_on"] = False  # a bound at the axis edge stays whole
+        # Bound labeled below, observed above, so the two never collide; a white backing keeps them legible over
+        # the requirement lines
+        ink = {"color": muted if row.faint else colors["ink"], "bbox": _BACKING}
+        ax.plot([row.bound] * 2, [y - 0.12, y + 0.12], linewidth=2.5, **mark)
+        _side_text(ax, row.bound, y - 0.14, row.bound_label, row.bound_left, x_range, ax_w, **ink)
+        if row.observed is not None and row.observed_label is not None:
+            ax.plot([row.bound, row.observed], [y, y], linewidth=3, **mark)
+            ax.plot([row.observed], [y], marker="o", markersize=8, **mark)
+            _side_text(ax, row.observed, y + 0.29, row.observed_label, not row.bound_left, x_range, ax_w, **ink)
+    ax.set_yticks(ys, labels=[textwrap.fill(r.label, layout.SOURCE_WRAP) for r in band.evidence])
+    ax.tick_params(axis="y", length=0)
+    for tick, row in zip(ax.get_yticklabels(), band.evidence):
+        tick.set_color(muted if row.faint else colors["ink"])
 
 
 class MatplotlibBackend(BasePlottingBackend):
@@ -707,4 +831,63 @@ class MatplotlibBackend(BasePlottingBackend):
                 tick_fontsize=6,
                 legend_fontsize=6,
             )
+        return fig
+
+    def _plot_feasibility(
+        self,
+        output: PlottableFeasibility,
+        figsize: tuple[float, float] | None = None,
+        plot_evidence: bool = False,
+    ) -> Figure:
+        """
+        Plot each quantity's requirements as a band of demonstrated, unknown and ruled-out zones.
+
+        Parameters
+        ----------
+        output : PlottableFeasibility
+            The feasibility output object to plot
+        figsize : tuple[float, float] or None, default None
+            Figure size in inches (width, height). If None, 9 inches wide and as tall as the bands need. An
+            explicit figsize overrides the computed layout height, so the bands stretch or squeeze to fit it.
+        plot_evidence : bool, default False
+            Whether to plot each source's observed score and confidence bound instead of the bands
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib.ticker import PercentFormatter
+
+        ink, muted = FEASIBILITY_COLORS["ink"], FEASIBILITY_COLORS["ink_muted"]
+        width = figsize[0] if figsize else 9.0
+        gutter, ax_w, height, blocks = layout.blocks(prepare_feasibility_data(output), plot_evidence, width)
+
+        fig = plt.figure(figsize=(width, height))
+        top = height
+        for band, x_range, xlabel, ax_h, placed, texts in blocks:
+            top -= layout.TITLE + ax_h
+            ax = fig.add_axes((gutter / width, top / height, ax_w / width, ax_h / height))
+            ax.set_xlim(*x_range)
+            ax.set_ylim(0, ax_h)  # y in inches, so offsets above are exact
+            ax.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
+            ax.tick_params(colors=muted, labelsize=layout.LABEL_PT, length=3)
+            ax.set_xlabel(xlabel, fontsize=11, fontweight="bold", color=ink)
+            ax.set_title(band.subtitle, loc="left", fontsize=layout.LABEL_PT, color=muted, pad=6)
+            for side in ("top", "right", "left"):
+                ax.spines[side].set_visible(False)
+            ax.spines["bottom"].set_color(muted)
+            if plot_evidence:
+                _draw_evidence(ax, band, x_range, ax_w, placed)
+            else:
+                _draw_band(ax, band, ax_w, placed)
+            top -= layout.XAXIS
+            for text, size, color in texts:
+                fig.text(
+                    layout.MARGIN / width, top / height, text, va="top", fontsize=size, color=color, linespacing=1.4
+                )
+                top -= layout.text_height(text)
+            top -= layout.GAP
+        if figsize:
+            fig.set_size_inches(figsize)
         return fig

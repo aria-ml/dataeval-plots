@@ -5,7 +5,10 @@ from __future__ import annotations
 import contextlib
 import inspect
 import io
-from collections.abc import Sequence
+import json
+import math
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
@@ -17,6 +20,7 @@ if TYPE_CHECKING:
         PlottableBalance,
         PlottableDiversity,
         PlottableDriftMVDC,
+        PlottableFeasibility,
     )
 
 MethodType = Literal[
@@ -42,6 +46,13 @@ __all__ = [
     "prepare_diversity_data",
     "prepare_drift_data",
     "plot_drift_on_axis",
+    "FEASIBILITY_COLORS",
+    "FEASIBILITY_CONFLICT_TEXT",
+    "FeasibilityBand",
+    "FeasibilityEvidenceRow",
+    "prepare_feasibility_data",
+    "feasibility_zones",
+    "feasibility_evidence_axis",
     "normalize_image_to_uint8",
     "image_to_base64_png",
     "image_to_hwc",
@@ -647,6 +658,358 @@ def plot_drift_on_axis(
     ax.set_ylabel(ylabel, fontsize=label_fontsize)
     ax.set_xlabel(xlabel, fontsize=label_fontsize)
     ax.set_ylim((0.0, 1.1))
+
+
+# Colors: demonstrated blue, ruled out orange, unknown light gray, warning amber; text in neutral ink
+FEASIBILITY_COLORS = {
+    "demonstrated": "#2a78d6",
+    "demonstrated_fill": "#cfe1f7",
+    "ruled_out": "#eb6834",
+    "ruled_out_fill": "#fbd9c9",
+    "unknown_fill": "#e9e8e4",
+    "warning": "#eda100",
+    "ink": "#0b0b0b",
+    "ink_muted": "#52514e",
+}
+FEASIBILITY_CONFLICT_TEXT = "Evidence conflicts: check assumptions"
+
+_SCOPE_RANK = {"partition_restricted": 0, "fixed_representation": 1, "full_input": 2}
+_SCOPE_SUBTITLE = {
+    "full_input": "Models may use the whole {unit}",
+    "fixed_representation": "Models may use only the embeddings",
+    "partition_restricted": "Models give one answer per group",
+}
+_SCOPE_MODELS = {
+    "full_input": "models that use the whole {unit}",
+    "fixed_representation": "models restricted to the embeddings",
+    "partition_restricted": "models that give one answer per group",
+}
+_MARKER_WORDS = {
+    "demonstrated_feasible": "demonstrated ✓",
+    "unresolved": "not enough evidence ?",
+    "infeasible_under_recorded_assumptions": "ruled out under the recorded assumptions ✗",
+    "not_ruled_out": "not ruled out ?",
+}
+_RULED_OUT = "ruled out under the recorded assumptions"  # never "ruled out" alone: it holds only under them
+_AGGREGATION_WORDS = {None: "", "sequence_mean": "per-sequence mean ", "frame_pooled": "frame-pooled "}
+_GROUP_CEILING = "group-based ceiling"
+_NO_BOUND = "no bound available"
+
+
+def _pct(value: float, direction: str | None = None) -> str:
+    """
+    Format to 0.1% as DataEval prints it.
+
+    A lower bound rounds down and an upper bound up, so rounding never overstates a bound.
+    """
+    if direction is None:
+        return f"{value:.1%}"
+    tenths = value * 1000  # the 1e-9 absorbs float error only, such as 0.957 * 1000 = 956.9999999999999
+    tenths = math.floor(tenths + 1e-9) if direction == "lower" else math.ceil(tenths - 1e-9)
+    return f"{tenths / 10:.1f}%"
+
+
+def _percent(value: float) -> str:
+    """A threshold, confidence or alpha as DataEval prints it: no rounding to whole percents, no trailing zeros."""
+    return f"{value * 100:g}%"
+
+
+@dataclass(frozen=True)
+class FeasibilityEvidenceRow:
+    """One evidence source's bound on one band, ready to draw.
+
+    ``bound_left`` puts the bound's label left of its tick (outward from the observed score) and the observed label
+    right of its dot; false swaps them. A source with no bound for the band has ``bound`` None and is drawn faint,
+    its ``bound_label`` saying so.
+    """
+
+    source: str
+    bound_type: str
+    bound: float | None
+    observed: float | None
+    restricted: bool
+    label: str
+    bound_label: str
+    observed_label: str | None
+    bound_left: bool
+    faint: bool
+
+
+@dataclass(frozen=True)
+class FeasibilityBand:
+    """One quantity's requirements (a target without its threshold), ready to draw."""
+
+    title: str
+    subtitle: str
+    x_range: tuple[float, float]
+    demonstrated: float | None
+    ruled_out: float | None
+    conflict: bool
+    boundary_labels: list[tuple[float, str, str, bool]]  # (bound, text, "lower" or "upper", label left of the line)
+    markers: list[tuple[float, str]]  # requirement labels in the band view
+    evidence_markers: list[tuple[float, str]]  # requirement labels in the evidence view
+    caption: list[str]
+    notes: list[str]
+    evidence: list[FeasibilityEvidenceRow]
+    evidence_legend: str
+    evidence_note: str | None  # drawn in the evidence view when no source has a bound for the band
+
+
+def _sentence_case(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
+def _feasibility_range(values: Iterable[float]) -> tuple[float, float]:
+    """[min − 0.05, 1.0], floored at 0 and rounded down to 0.05."""
+    low = math.floor(round((min(values) - 0.05) / 0.05, 9)) * 0.05
+    return round(max(low, 0.0), 2), 1.0
+
+
+def _feasibility_evidence(
+    evidence: list[dict[str, Any]], scope: str, unit: str
+) -> tuple[list[FeasibilityEvidenceRow], list[str]]:
+    """
+    One row per evidence item, at its most favorable bound over the band's thresholds, and the notes.
+
+    A source with no bound for any of the band's thresholds keeps one row, with no bound.
+    """
+    kept: dict[str, dict[str, Any]] = {}
+    for e in evidence:
+        sign = 1 if e["bound_type"] == "lower" else -1
+        prev = kept.get(e["evidence_id"])
+        if prev is None or (
+            e["bound"] is not None and (prev["bound"] is None or sign * e["bound"] > sign * prev["bound"])
+        ):
+            kept[e["evidence_id"]] = e
+    rows, notes = [], []
+    for e in kept.values():
+        # A ceiling counts at its scope and narrower ones; a witness at its scope and broader ones
+        info, bound, kind = e["information_scope"], e["bound"], e["bound_type"]
+        rank, judged = _SCOPE_RANK[info], _SCOPE_RANK[scope]
+        restricted = rank < judged if kind == "upper" else rank > judged
+        models = _SCOPE_MODELS[info].format(unit=unit)
+        label = _sentence_case(e["source"]) + (f" ({models})" if restricted else "")
+        observed = None if bound is None else e["observed"]  # an observed score alone bounds nothing
+        rows.append(
+            FeasibilityEvidenceRow(
+                source=e["source"],
+                bound_type=kind,
+                bound=bound,
+                observed=observed,
+                restricted=restricted,
+                label=label,
+                bound_label=_NO_BOUND if bound is None else f"{_pct(bound, kind)} {kind} bound",
+                observed_label=None if observed is None else f"{_pct(observed)} observed",
+                bound_left=kind == "lower",
+                faint=restricted or bound is None,
+            )
+        )
+        if restricted and kind == "upper" and bound is not None:
+            ceiling = _pct(bound, "upper")
+            notes.append(
+                f"The group-based ceiling ({ceiling}) does not limit models that distinguish individual {unit}s."
+                if info == "partition_restricted"
+                else f"The {e['source']} ({ceiling}) applies only to {models}; "
+                "it does not limit the models judged here."
+            )
+    return rows, list(dict.fromkeys(notes))
+
+
+def _deciding(
+    row: dict[str, Any], evidence: list[dict[str, Any]]
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """A determinations row's deciding witness and ceiling bounds, found as DataEval's printout finds them."""
+    mine = [e for e in evidence if e["target_spec"] == row["target_spec"]]
+    witness = next((e for e in mine if e["evidence_id"] == row["witness_source"] and e["bound_type"] == "lower"), None)
+    # The deciding ceiling is the bound at the row's ceiling scope; a narrower one can share its value
+    ceiling = next(
+        (
+            e
+            for e in mine
+            if e["bound_type"] == "upper"
+            and e["bound"] is not None
+            and row["ceiling"] is not None
+            and e["information_scope"] == row["ceiling_scope"]
+            and math.isclose(e["bound"], row["ceiling"])
+        ),
+        None,
+    )
+    return witness, ceiling
+
+
+def _unit(rows: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> str | None:
+    """The unit of the first row's deciding witness or ceiling, as the printout names it; None without one."""
+    for row in rows:
+        witness, ceiling = _deciding(row, evidence)
+        if witness or ceiling:
+            return (witness or ceiling or {})["unit"]
+    return None
+
+
+def _feasibility_title(spec: dict[str, Any]) -> str:
+    """The axis title, naming the AP class (or macro) and any aggregation so per-class bands differ."""
+    metric = spec["metric"]
+    if metric == "ap":
+        metric = "macro AP" if spec.get("class_name") is None else f"AP for class {spec['class_name']}"
+    return "Required " + _AGGREGATION_WORDS[spec.get("aggregation")] + metric
+
+
+def _feasibility_band(
+    rows: list[dict[str, Any]], evidence: list[dict[str, Any]], alpha: float, noun: str
+) -> FeasibilityBand:
+    """One band; ``noun`` is the unit the printout's footer names for the whole call."""
+    scope = rows[0]["judged_scope"]
+    unit = _unit(rows, evidence) or "image"
+    # A lower bound of 0% demonstrates nothing and an upper bound of 100% rules nothing out
+    witnessed = [r for r in rows if r["witness"] is not None and r["witness"] > 0.0]
+    best = max(witnessed, key=lambda r: r["witness"], default=None)
+    w = None if best is None else best["witness"]
+    ceilinged = [r for r in rows if r["ceiling"] is not None and r["ceiling"] < 1.0]
+    deciding = min(ceilinged, key=lambda r: r["ceiling"], default=None)
+    c = None if deciding is None else deciding["ceiling"]
+    conflict = any(r["determination"] == "evidence_conflict" for r in rows)
+    ev_rows, notes = _feasibility_evidence(evidence, scope, unit)
+
+    # Each label outward from the unknown zone; in a conflict the bounds cross, so outward flips
+    boundary_labels = []
+    if w is not None:
+        boundary_labels.append((w, f"{_pct(w, 'lower')} lower confidence bound", "lower", not conflict))
+    if c is not None:
+        boundary_labels.append((c, f"{_pct(c, 'upper')} upper confidence bound", "upper", conflict))
+
+    markers = []
+    for r in sorted(rows, key=lambda r: r["threshold"]):
+        words = _MARKER_WORDS.get(r["determination"])
+        markers.append((r["threshold"], f"{_percent(r['threshold'])} requirement" + (f": {words}" if words else "")))
+
+    if conflict:
+        caption = [
+            f"The bounds disagree. Check the assumptions, including whether evaluation {unit}s entered training. "
+            f"Even when assumptions hold, the probability that any bound fails is at most {_percent(alpha)}."
+        ]
+    else:
+        caption = []
+        witness = None if best is None else _deciding(best, evidence)[0]
+        if witness and witness["observed"] is not None and w is not None:
+            on = "" if witness["n"] is None else f"{witness['n']:,} "
+            caption.append(
+                f"{_sentence_case(witness['source'])} scored {_pct(witness['observed'])} on the {on}evaluation "
+                f"{unit}s. Allowing for sampling uncertainty gives a lower confidence bound of {_pct(w, 'lower')}."
+            )
+        if deciding is not None and c is not None:
+            ceiling = _deciding(deciding, evidence)[1]
+            sign_off = ceiling is not None and ceiling["source"] == _GROUP_CEILING
+            caption.append(
+                f"Under the recorded assumptions, requirements above {_pct(c, 'upper')} are ruled out at the stated "
+                "confidence"
+                + (" (group-based ceiling; its validity argument awaits lead-scientist sign-off)" if sign_off else "")
+                + "."
+            )
+        caption.append(
+            f"Bounds concern new {noun}s drawn from the same population. "
+            f"Confidence is {_percent(1 - alpha)} jointly across this evaluation."
+        )
+
+    legend = f"● observed on the evaluation {unit}s · ┃ lower confidence bound for new {unit}s from the same population"
+    if any(r.bound_type == "upper" and r.bound is not None for r in ev_rows):
+        legend += " · ┃ upper confidence bound"
+
+    return FeasibilityBand(
+        title=_feasibility_title(json.loads(rows[0]["target_spec"])),
+        subtitle=_SCOPE_SUBTITLE[scope].format(unit=unit),
+        x_range=_feasibility_range([*(t for t, _ in markers), *(b[0] for b in boundary_labels)]),
+        demonstrated=None if conflict else w,
+        ruled_out=None if conflict else c,
+        conflict=conflict,
+        boundary_labels=boundary_labels,
+        markers=markers,
+        evidence_markers=[(t, f"{_percent(t)} required") for t, _ in markers],
+        caption=caption,
+        notes=notes,
+        evidence=ev_rows,
+        evidence_legend=legend,
+        evidence_note=None if any(r.bound is not None for r in ev_rows) else "No bound is available yet.",
+    )
+
+
+def prepare_feasibility_data(output: PlottableFeasibility) -> list[FeasibilityBand]:
+    """
+    Prepare feasibility data for plotting across all backends.
+
+    Determinations rows whose target is equal apart from its threshold share one band, so only thresholds of the
+    same quantity share zones.
+
+    Parameters
+    ----------
+    output : PlottableFeasibility
+        The feasibility output object to plot
+
+    Returns
+    -------
+    list[FeasibilityBand]
+        One band per quantity, in the order the determinations first name it
+    """
+    rows = list(output.determinations.iter_rows(named=True))
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        spec = json.loads(row["target_spec"])
+        spec.pop("threshold", None)
+        groups.setdefault(json.dumps(spec, sort_keys=True), []).append(row)
+    evidence = output.aggregate_by_evidence().to_dicts()
+    alpha = output.meta().state["alpha"]
+    noun = _unit(rows, evidence) or "image"  # the printout's footer noun, for the whole call
+    bands = []
+    for band in groups.values():
+        specs = {r["target_spec"] for r in band}
+        bands.append(_feasibility_band(band, [e for e in evidence if e["target_spec"] in specs], alpha, noun))
+    return bands
+
+
+def feasibility_zones(band: FeasibilityBand) -> list[tuple[str, float, float, str]]:
+    """
+    Split a band into its zones.
+
+    Parameters
+    ----------
+    band : FeasibilityBand
+        The band to split
+
+    Returns
+    -------
+    list[tuple[str, float, float, str]]
+        (kind, start, end, label) per zone, kind one of ``demonstrated``, ``unknown`` or ``ruled_out``; none when
+        the evidence conflicts
+    """
+    if band.conflict:
+        return []
+    lo, hi = band.x_range
+    start = lo if band.demonstrated is None else band.demonstrated
+    end = hi if band.ruled_out is None else band.ruled_out
+    zones = [("unknown", start, end, "unknown")]
+    if band.demonstrated is not None:
+        zones.insert(0, ("demonstrated", lo, start, f"Requirements through {_pct(start, 'lower')} are demonstrated"))
+    if band.ruled_out is not None:
+        zones.append(("ruled_out", end, hi, _RULED_OUT))
+    return [zone for zone in zones if zone[2] > zone[1]]  # a zero-width zone has nothing to show
+
+
+def feasibility_evidence_axis(band: FeasibilityBand) -> tuple[tuple[float, float], str]:
+    """
+    Axis range and title for a band's evidence view.
+
+    Parameters
+    ----------
+    band : FeasibilityBand
+        The band whose evidence is drawn
+
+    Returns
+    -------
+    tuple[tuple[float, float], str]
+        The range covering every threshold, bound and observed score, and the metric's name
+    """
+    values = [t for t, _ in band.markers] + [r.bound for r in band.evidence if r.bound is not None]
+    values += [r.observed for r in band.evidence if r.observed is not None]
+    return _feasibility_range(values), _sentence_case(band.title.removeprefix("Required "))
 
 
 def normalize_image_to_uint8(img_np: NDArray[Any]) -> NDArray[Any]:

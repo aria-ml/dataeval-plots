@@ -19,6 +19,7 @@ from dataeval_plots.protocols import (
     PlottableBalance,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableFeasibility,
     PlottableStats,
     PlottableSufficiency,
 )
@@ -491,3 +492,34 @@ class SeabornBackend(BasePlottingBackend):
 
         fig.tight_layout()
         return fig
+
+    def _plot_feasibility(
+        self,
+        output: PlottableFeasibility,
+        figsize: tuple[float, float] | None = None,
+        plot_evidence: bool = False,
+    ) -> Figure:
+        """
+        Plot each quantity's requirements as a band of demonstrated, unknown and ruled-out zones, in Seaborn styling.
+
+        Parameters
+        ----------
+        output : PlottableFeasibility
+            The feasibility output object to plot
+        figsize : tuple[float, float] or None, default None
+            Figure size in inches (width, height). If None, 9 inches wide and as tall as the bands need. An
+            explicit height stretches or squeezes the bands to fit it.
+        plot_evidence : bool, default False
+            Whether to plot each source's observed score and confidence bound instead of the bands
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import seaborn as sns
+
+        from dataeval_plots.backends._matplotlib import MatplotlibBackend
+
+        # No grid: grid lines would cross the requirement labels, which sit on bare axes
+        with sns.axes_style("white"):
+            return MatplotlibBackend()._plot_feasibility(output, figsize=figsize, plot_evidence=plot_evidence)

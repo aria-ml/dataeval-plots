@@ -20,6 +20,7 @@ from dataeval_plots.protocols import (
     PlottableBalance,
     PlottableDiversity,
     PlottableDriftMVDC,
+    PlottableFeasibility,
     PlottableStats,
     PlottableSufficiency,
     PlottableType,
@@ -99,6 +100,31 @@ def plot(
 
 @overload
 def plot(
+    output: PlottableFeasibility,
+    /,
+    figsize: tuple[float, float] | None = None,
+    backend: str | None = None,
+    *,
+    plot_evidence: bool = False,
+) -> Any:
+    """
+    Plot a feasibility result as one band per quantity.
+
+    Each band classifies accuracy requirements as demonstrated (up to the best tested model's lower confidence
+    bound), unknown, or ruled out (above the lowest applicable ceiling's upper confidence bound, under the recorded
+    assumptions). Confidence holds jointly across the whole evaluation.
+
+    Parameters
+    ----------
+    plot_evidence : bool, default False
+        Replace each band with one row per evidence source, showing the observed score as a dot and the confidence
+        bound as a tick.
+    """
+    ...
+
+
+@overload
+def plot(
     output: Dataset,
     /,
     figsize: tuple[float, float] | None = None,
@@ -138,7 +164,7 @@ def plot(
         Plotting backend ('matplotlib', 'seaborn', 'plotly', 'altair').
         If None, uses default backend.
     **kwargs
-        Backend-specific plotting parameters
+        Backend-specific plotting parameters, such as ``plot_evidence`` for feasibility outputs
 
     Returns
     -------

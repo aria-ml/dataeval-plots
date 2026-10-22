@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import plotly.graph_objects as go
 import polars as pl
 import pytest
 from conftest import MockPlottableBalance
-from test_backend_base import BackendTestBase
+from test_backend_base import ZONE_FILLS, BackendTestBase, assert_draws
 
 from dataeval_plots.backends._plotly import PlotlyBackend
 
@@ -54,6 +55,18 @@ class TestPlotlyBackend(BackendTestBase):
         assert isinstance(result, go.Figure)
         # Plotly creates one data trace per image
         assert len(result.data) == expected_image_count
+
+    def validate_feasibility_result(
+        self, result: Any, texts: Sequence[str], zones: int, faint: bool = False, outline: bool = False
+    ) -> None:
+        """Validate the result from plotting feasibility: zone rect shapes, the dashed outline rect, faint markers."""
+        assert isinstance(result, go.Figure)
+        drawn = [a.text for a in result.layout.annotations] + [ax.title.text or "" for ax in result.select_xaxes()]
+        assert_draws(drawn, texts)
+        rects = [s for s in result.layout.shapes if s.type == "rect"]
+        assert sum(s.fillcolor in ZONE_FILLS for s in rects) == zones
+        assert any(t.opacity == 0.35 for t in result.data) == faint
+        assert any(s.line.dash == "dash" for s in rects) == outline
 
     def test_plot_balance_truncates_short_labels(self, backend: PlotlyBackend) -> None:
         """Row/col labels shorter than the data rows are truncated in the trace."""
