@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.14] - 2026-10-22
+
+- [impr] Tighten the feasibility plot's wording without dropping a qualifier
+
 ## [0.0.13] - 2026-10-22
 
 - [fix] Draw each matplotlib plot once in notebooks
