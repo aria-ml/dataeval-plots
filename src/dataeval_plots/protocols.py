@@ -22,14 +22,16 @@ from datetime import datetime
 from typing import (
     Any,
     Literal,
+    NotRequired,
     Protocol,
+    Required,
     TypedDict,
     runtime_checkable,
 )
 
 import polars as pl
 from numpy.typing import NDArray
-from typing_extensions import NotRequired, ReadOnly, Required
+from typing_extensions import ReadOnly
 
 
 class ExecutionMetadata(Protocol):
@@ -287,36 +289,55 @@ class PlottableDriftMVDC(Plottable, Protocol):
     def plot_type(self) -> Literal["drift_mvdc"]: ...
 
 
+class FeasibilityEndpoint(Protocol):
+    """One bound on one target, as DataEval's ``Endpoint`` records it; only the fields the plot reads."""
+
+    @property
+    def target_spec(self) -> str: ...
+    @property
+    def value(self) -> float | None: ...
+    @property
+    def direction(self) -> Literal["lower", "upper"]: ...
+    @property
+    def state(self) -> str: ...
+
+
+class FeasibilityEvidence(Protocol):
+    """One evidence item, as DataEval's ``Evidence`` records it; only the fields the plot reads."""
+
+    @property
+    def kind(self) -> str: ...
+    @property
+    def information_scope(self) -> str: ...
+    @property
+    def unit(self) -> str: ...
+    @property
+    def endpoints(self) -> Sequence[FeasibilityEndpoint]: ...
+    @property
+    def details(self) -> Mapping[str, Any]: ...
+
+
 @runtime_checkable
 class PlottableFeasibility(Plottable, Protocol):
     """Protocol for feasibility plot outputs.
 
     Required attributes:
     - determinations: One row per target (DataFrame)
-    - aggregate_by_evidence(): One row per evidence item and target (DataFrame)
+    - evidence: Every evidence item of the call, by evidence id
     - meta().state["alpha"]: The call's error budget
     - plot_type -> 'feasibility'
 
-    DataFrame structures:
+    Structures:
     - determinations columns: target_spec, metric, threshold, judged_scope, determination, ceiling,
       ceiling_scope, witness, witness_source
-    - aggregate_by_evidence() columns: target_spec, metric, threshold, source, evidence_id,
-      information_scope, unit, bound_type, observed, bound, n, state, alpha, basis
+    - each evidence item: kind, information_scope, unit (``item`` or ``group``), endpoints (target_spec, value,
+      direction, state) and details["endpoints"][target_spec], which is None or holds the bound's mean and n
     """
 
     @property
     def determinations(self) -> pl.DataFrame: ...
-    def aggregate_by_evidence(self) -> pl.DataFrame:
-        """Evidence as a polars DataFrame.
-
-        Returns
-        -------
-        pl.DataFrame
-            One row per evidence item and target: each source's bound on the target, and its observed score
-            where one exists
-        """
-        ...
-
+    @property
+    def evidence(self) -> Mapping[str, FeasibilityEvidence]: ...
     @property
     def plot_type(self) -> Literal["feasibility"]: ...
 

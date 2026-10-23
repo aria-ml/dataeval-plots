@@ -1,5 +1,5 @@
 variables:
-  PYTHON_LATEST_SUPPORTED_VERSION: '3.13'
+  PYTHON_LATEST_SUPPORTED_VERSION: '3.14'
   UV_LINK_MODE: symlink
   UV_IMAGE: ghcr.io/astral-sh/uv
   UV_BASE_LAYER: bookworm
@@ -33,7 +33,7 @@ include:
       session: type
       tags: ["k8s-medium-cpu"]
       stage: test
-      python_versions: ["3.10", "3.11", "3.12", "3.13"]
+      python_versions: ["3.11", "3.12", "3.13", "3.14"]
       image: $UV_IMAGE:python$PYTHON_VERSION-$UV_BASE_LAYER
 
   - component: gitlab.jatic.net/jatic/aria/ci/python-matrix@0.11.0
@@ -42,7 +42,7 @@ include:
       session: test
       tags: ["k8s-small-cpu"]
       stage: test
-      python_versions: ["3.10", "3.11", "3.12", "3.13"]
+      python_versions: ["3.11", "3.12", "3.13", "3.14"]
       image: $UV_IMAGE:python$PYTHON_VERSION-$UV_BASE_LAYER
       # Datasets the suite downloads, keyed apart from the uv cache.
       extra_cache_key: datasets

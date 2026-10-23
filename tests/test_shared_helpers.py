@@ -8,9 +8,11 @@ from unittest.mock import patch
 import numpy as np
 import polars as pl
 import pytest
-from conftest import _feasibility, _source, _target
+from conftest import MockEndpoint, MockPlottableFeasibility, _feasibility, _source, _target
 
+from dataeval_plots import plot
 from dataeval_plots.backends._shared import (
+    _evidence_rows,
     draw_bounding_boxes,
     extract_boxes_and_labels,
     feasibility_evidence_axis,
@@ -375,6 +377,88 @@ class TestDrawBoundingBoxesWithPIL:
             assert result.dtype == np.uint8
 
 
+def _restat(output: MockPlottableFeasibility, **stats: object) -> MockPlottableFeasibility:
+    """Override every endpoint's summary statistics."""
+    output.evidence = {
+        eid: replace(ev, details={"endpoints": {k: v and {**v, **stats} for k, v in ev.details["endpoints"].items()}})
+        for eid, ev in output.evidence.items()
+    }
+    return output
+
+
+class TestEvidenceRows:
+    """Tests for _evidence_rows, which reads the full output as the old summary table did."""
+
+    def test_plots_without_the_summary_table(self, mock_feasibility_how_to):
+        assert not hasattr(mock_feasibility_how_to, "aggregate_by_evidence")
+        assert plot(mock_feasibility_how_to, backend="matplotlib") is not None
+
+    def test_rows(self, mock_feasibility_how_to):
+        rows = _evidence_rows(mock_feasibility_how_to)
+        assert rows.height == 8  # two targets, four sources
+        assert rows.row(0, named=True) == {
+            "target_spec": mock_feasibility_how_to.determinations["target_spec"][0],
+            "metric": "accuracy",
+            "threshold": 0.95,
+            "source": "your model",
+            "evidence_id": "user_witness/v1",
+            "information_scope": "full_input",
+            "unit": "image",
+            "bound_type": "lower",
+            "observed": 0.969,
+            "bound": 0.957,
+            "n": 5000,
+            "state": "informative",
+        }
+        assert rows["source"].to_list()[:4] == [
+            "your model",
+            "built-in k-NN",
+            "built-in linear probe",
+            "group-based ceiling",
+        ]
+
+    def test_ceiling_mean_is_not_observed(self):
+        output = _restat(
+            _feasibility([_target(0.9, "unresolved")], [_source("repeated labels", 0.93, bound_type="upper")]),
+            mean=0.97,
+        )
+        assert _evidence_rows(output)["observed"].to_list() == [None]
+
+    def test_no_stats_gives_null_observed_and_n(self, mock_feasibility_how_to):
+        output = mock_feasibility_how_to
+        model = output.evidence["user_witness/v1"]
+        output.evidence["user_witness/v1"] = replace(
+            model, details={"endpoints": dict.fromkeys(model.details["endpoints"])}
+        )
+        rows = _evidence_rows(output).filter(pl.col("evidence_id") == "user_witness/v1")
+        assert rows["observed"].to_list() == rows["n"].to_list() == [None, None]
+        assert rows["bound"].to_list() == [0.957, 0.957]
+        (band,) = prepare_feasibility_data(output)
+        assert not any("scored" in line for line in band.caption)
+
+    def test_unknown_kind_keeps_its_evidence_id(self):
+        output = _feasibility([_target(0.9, "unresolved")], [_source("custom_witness/v1:mine", 0.85)])
+        assert _evidence_rows(output)["source"].to_list() == ["custom_witness/v1:mine"]
+
+    def test_group_unit_reads_sequence(self):
+        output = _feasibility([_target(0.9, "unresolved")], [_source("your model", 0.85, unit="group")])
+        assert _evidence_rows(output)["unit"].to_list() == ["sequence"]
+
+    def test_endpoint_off_the_determinations_is_ignored(self, mock_feasibility_ruled_out):
+        output = mock_feasibility_ruled_out
+        before = _evidence_rows(output)
+        model = output.evidence["user_witness/v1"]
+        output.evidence["user_witness/v1"] = replace(
+            model,
+            endpoints=(*model.endpoints, MockEndpoint("not a target", 0.99, "lower", "informative")),
+            details={"endpoints": {**model.details["endpoints"], "not a target": None}},
+        )
+        assert _evidence_rows(output).equals(before)
+
+    def test_no_evidence(self, mock_feasibility_empty):
+        assert _evidence_rows(mock_feasibility_empty).shape == (0, 12)
+
+
 class TestPrepareFeasibilityData:
     """Tests for prepare_feasibility_data."""
 
@@ -430,8 +514,8 @@ class TestPrepareFeasibilityData:
 
     def test_group_based_ceiling_caption_awaits_sign_off(self, mock_feasibility_ruled_out):
         output = mock_feasibility_ruled_out
-        output.evidence_table = output.evidence_table.with_columns(
-            pl.col("source").replace("repeated labels", "group-based ceiling")
+        output.evidence["replica_ceiling/v1"] = replace(
+            output.evidence["replica_ceiling/v1"], kind="local_panel_ceiling/v1"
         )
         (band,) = prepare_feasibility_data(output)
         assert (
@@ -472,8 +556,7 @@ class TestPrepareFeasibilityData:
 
     def test_observed_null(self, mock_feasibility_how_to):
         """Review Focus 3: no observed score, no "scored" sentence."""
-        output = mock_feasibility_how_to
-        output.evidence_table = output.evidence_table.with_columns(pl.lit(None, dtype=pl.Float64).alias("observed"))
+        output = _restat(mock_feasibility_how_to, mean=None)
         (band,) = prepare_feasibility_data(output)
         assert not any("scored" in line for line in band.caption)
         assert band.caption[-1].startswith("Bounds concern new images")
@@ -526,8 +609,7 @@ class TestPrepareFeasibilityData:
         )
 
     def test_observed_without_n(self, mock_feasibility_how_to):
-        output = mock_feasibility_how_to
-        output.evidence_table = output.evidence_table.with_columns(pl.lit(None, dtype=pl.Int64).alias("n"))
+        output = _restat(mock_feasibility_how_to, n=None)
         (band,) = prepare_feasibility_data(output)
         assert band.caption[0] == (
             "Your model scored 96.9% on the evaluation images. Allowing for sampling uncertainty gives a lower "
@@ -611,7 +693,7 @@ class TestPrepareFeasibilityData:
                 _target(0.6, "demonstrated_feasible", witness=0.65, aggregation="sequence_mean"),
                 _target(0.7, "unresolved", aggregation="frame_pooled"),
             ],
-            [_source("built-in linear probe", 0.65, observed=0.81, scope="fixed_representation", unit="sequence")],
+            [_source("built-in linear probe", 0.65, observed=0.81, scope="fixed_representation", unit="group")],
         )
         sequences, frames = prepare_feasibility_data(output)
         assert sequences.subtitle == "Models may use the whole sequence"

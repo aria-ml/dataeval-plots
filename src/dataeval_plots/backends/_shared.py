@@ -167,8 +167,8 @@ def reduce_embeddings(
 
         # scikit-learn 1.8 renamed the non-metric switch from `metric` to `metric_mds`
         # -- `metric` now names the distance metric -- and moved `init` from fit() onto
-        # the constructor. 1.8 requires Python >=3.11, so on the 3.10 leg the lockfile
-        # necessarily resolves 1.7.x, where neither new spelling exists.
+        # the constructor. The projection extra still allows older releases, where neither
+        # new spelling exists.
         #
         # Ask the signature rather than compare version strings: it needs no extra
         # dependency and tests exactly the thing being depended on. Omitting `init` on
@@ -932,6 +932,61 @@ def _feasibility_band(
     )
 
 
+# These mirror DataEval's performance/_feasibility.py: _SOURCES, _source_name, _unit_noun and FeasibilityOutput._bounds
+_SOURCE_NAMES = {
+    "replica_ceiling/v1": "repeated labels",
+    "builtin_witness/v1:knn": "built-in k-NN",
+    "builtin_witness/v1:probe": "built-in linear probe",
+    "user_witness/v1": "your model",
+}
+_EVIDENCE_SCHEMA = {
+    "target_spec": pl.String,
+    "metric": pl.String,
+    "threshold": pl.Float64,
+    "source": pl.String,
+    "evidence_id": pl.String,
+    "information_scope": pl.String,
+    "unit": pl.String,
+    "bound_type": pl.String,
+    "observed": pl.Float64,
+    "bound": pl.Float64,
+    "n": pl.Int64,
+    "state": pl.String,
+}
+
+
+def _evidence_rows(output: PlottableFeasibility) -> pl.DataFrame:
+    """One row per endpoint on a target in ``determinations``, in their order, then the order of ``evidence``."""
+    targets = {r["target_spec"]: r for r in output.determinations.iter_rows(named=True)}
+    rows = []
+    for spec, target in targets.items():
+        for eid, ev in output.evidence.items():
+            for e in ev.endpoints:
+                if e.target_spec != spec:
+                    continue
+                stats = ev.details["endpoints"][spec] or {}
+                rows.append(
+                    {
+                        "target_spec": spec,
+                        "metric": target["metric"],
+                        "threshold": target["threshold"],
+                        "source": _GROUP_CEILING
+                        if ev.kind.startswith("local_panel_ceiling/v1")
+                        else _SOURCE_NAMES.get(eid, eid),
+                        "evidence_id": eid,
+                        "information_scope": ev.information_scope,
+                        "unit": "sequence" if ev.unit == "group" else "image",
+                        "bound_type": e.direction,
+                        # A ceiling's mean is panel agreement, not an observed score
+                        "observed": stats.get("mean") if e.direction == "lower" else None,
+                        "bound": e.value,
+                        "n": stats.get("n"),
+                        "state": e.state,
+                    }
+                )
+    return pl.DataFrame(rows, schema=_EVIDENCE_SCHEMA)
+
+
 def prepare_feasibility_data(output: PlottableFeasibility) -> list[FeasibilityBand]:
     """
     Prepare feasibility data for plotting across all backends.
@@ -955,7 +1010,7 @@ def prepare_feasibility_data(output: PlottableFeasibility) -> list[FeasibilityBa
         spec = json.loads(row["target_spec"])
         spec.pop("threshold", None)
         groups.setdefault(json.dumps(spec, sort_keys=True), []).append(row)
-    evidence = output.aggregate_by_evidence().to_dicts()
+    evidence = _evidence_rows(output).to_dicts()
     alpha = output.meta().state["alpha"]
     noun = _unit(rows, evidence) or "image"  # the printout's footer noun, for the whole call
     bands = []
