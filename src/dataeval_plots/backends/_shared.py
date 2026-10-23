@@ -684,13 +684,16 @@ _SCOPE_MODELS = {
     "fixed_representation": "models restricted to the embeddings",
     "partition_restricted": "models that give one answer per group",
 }
+_SCOPE_ROW = {"fixed_representation": "embeddings only", "partition_restricted": "one answer per group"}
+# "ruled out*" never stands alone: its "*" footnote in the same band's caption says it holds only under the recorded
+# assumptions, and an infeasible row always has a ceiling, which writes that footnote
 _MARKER_WORDS = {
     "demonstrated_feasible": "demonstrated ✓",
-    "unresolved": "not enough evidence ?",
-    "infeasible_under_recorded_assumptions": "ruled out under the recorded assumptions ✗",
+    "unresolved": "insufficient evidence ?",
+    "infeasible_under_recorded_assumptions": "ruled out* ✗",
     "not_ruled_out": "not ruled out ?",
 }
-_RULED_OUT = "ruled out under the recorded assumptions"  # never "ruled out" alone: it holds only under them
+_RULED_OUT = "ruled out*"
 _AGGREGATION_WORDS = {None: "", "sequence_mean": "per-sequence mean ", "frame_pooled": "frame-pooled "}
 _GROUP_CEILING = "group-based ceiling"
 _NO_BOUND = "no bound available"
@@ -750,6 +753,7 @@ class FeasibilityBand:
     evidence_markers: list[tuple[float, str]]  # requirement labels in the evidence view
     caption: list[str]
     notes: list[str]
+    evidence_caption: list[str]  # the evidence view's caption, in place of the caption and notes
     evidence: list[FeasibilityEvidenceRow]
     evidence_legend: str
     evidence_note: str | None  # drawn in the evidence view when no source has a bound for the band
@@ -788,7 +792,7 @@ def _feasibility_evidence(
         rank, judged = _SCOPE_RANK[info], _SCOPE_RANK[scope]
         restricted = rank < judged if kind == "upper" else rank > judged
         models = _SCOPE_MODELS[info].format(unit=unit)
-        label = _sentence_case(e["source"]) + (f" ({models})" if restricted else "")
+        label = _sentence_case(e["source"]) + (f" ({_SCOPE_ROW.get(info, models)})" if restricted else "")
         observed = None if bound is None else e["observed"]  # an observed score alone bounds nothing
         rows.append(
             FeasibilityEvidenceRow(
@@ -807,10 +811,9 @@ def _feasibility_evidence(
         if restricted and kind == "upper" and bound is not None:
             ceiling = _pct(bound, "upper")
             notes.append(
-                f"The group-based ceiling ({ceiling}) does not limit models that distinguish individual {unit}s."
+                f"Group-based ceiling ({ceiling}) applies only to models that give one answer per group."
                 if info == "partition_restricted"
-                else f"The {e['source']} ({ceiling}) applies only to {models}; "
-                "it does not limit the models judged here."
+                else f"{_sentence_case(e['source'])} ({ceiling}) applies only to {models}."
             )
     return rows, list(dict.fromkeys(notes))
 
@@ -880,37 +883,43 @@ def _feasibility_band(
     markers = []
     for r in sorted(rows, key=lambda r: r["threshold"]):
         words = _MARKER_WORDS.get(r["determination"])
-        markers.append((r["threshold"], f"{_percent(r['threshold'])} requirement" + (f": {words}" if words else "")))
+        markers.append((r["threshold"], _percent(r["threshold"]) + (f": {words}" if words else "")))
 
+    conflict_caption = (
+        f"Bounds disagree: check the assumptions, such as evaluation {unit}s entering training. "
+        f"Even when they hold, the chance that any bound fails is at most {_percent(alpha)}."
+    )
     if conflict:
-        caption = [
-            f"The bounds disagree. Check the assumptions, including whether evaluation {unit}s entered training. "
-            f"Even when assumptions hold, the probability that any bound fails is at most {_percent(alpha)}."
-        ]
+        caption = [conflict_caption]
     else:
         caption = []
         witness = None if best is None else _deciding(best, evidence)[0]
         if witness and witness["observed"] is not None and w is not None:
-            on = "" if witness["n"] is None else f"{witness['n']:,} "
+            on = "the " if witness["n"] is None else f"{witness['n']:,} "
             caption.append(
-                f"{_sentence_case(witness['source'])} scored {_pct(witness['observed'])} on the {on}evaluation "
-                f"{unit}s. Allowing for sampling uncertainty gives a lower confidence bound of {_pct(w, 'lower')}."
+                f"{_sentence_case(witness['source'])} scored {_pct(witness['observed'])} on {on}evaluation "
+                f"{unit}s; given sampling uncertainty, its lower confidence bound is {_pct(w, 'lower')}."
             )
+        caption.append(
+            f"Bounds apply to new {noun}s from the same population, at {_percent(1 - alpha)} joint confidence."
+        )
+        # The "*" footnote to every "ruled out*" goes last, as a footnote does
         if deciding is not None and c is not None:
             ceiling = _deciding(deciding, evidence)[1]
             sign_off = ceiling is not None and ceiling["source"] == _GROUP_CEILING
             caption.append(
-                f"Under the recorded assumptions, requirements above {_pct(c, 'upper')} are ruled out at the stated "
-                "confidence"
-                + (" (group-based ceiling; its validity argument awaits lead-scientist sign-off)" if sign_off else "")
+                "* Ruled out under the recorded assumptions, at the stated confidence"
+                + (" (group-based ceiling; validity pending lead-scientist sign-off)" if sign_off else "")
                 + "."
             )
-        caption.append(
-            f"Bounds concern new {noun}s drawn from the same population. "
-            f"Confidence is {_percent(1 - alpha)} jointly across this evaluation."
-        )
+    evidence_caption = [
+        f"Observed on the evaluation {unit}s; bounds apply to new {unit}s from the same population, "
+        f"at {_percent(1 - alpha)} joint confidence."
+    ]
+    if conflict:
+        evidence_caption.append(conflict_caption)
 
-    legend = f"● observed on the evaluation {unit}s · ┃ lower confidence bound for new {unit}s from the same population"
+    legend = "● observed · ┃ lower confidence bound"
     if any(r.bound_type == "upper" and r.bound is not None for r in ev_rows):
         legend += " · ┃ upper confidence bound"
 
@@ -926,6 +935,7 @@ def _feasibility_band(
         evidence_markers=[(t, f"{_percent(t)} required") for t, _ in markers],
         caption=caption,
         notes=notes,
+        evidence_caption=evidence_caption,
         evidence=ev_rows,
         evidence_legend=legend,
         evidence_note=None if any(r.bound is not None for r in ev_rows) else "No bound is available yet.",
@@ -1042,7 +1052,7 @@ def feasibility_zones(band: FeasibilityBand) -> list[tuple[str, float, float, st
     end = hi if band.ruled_out is None else band.ruled_out
     zones = [("unknown", start, end, "unknown")]
     if band.demonstrated is not None:
-        zones.insert(0, ("demonstrated", lo, start, f"Requirements through {_pct(start, 'lower')} are demonstrated"))
+        zones.insert(0, ("demonstrated", lo, start, "demonstrated"))
     if band.ruled_out is not None:
         zones.append(("ruled_out", end, hi, _RULED_OUT))
     return [zone for zone in zones if zone[2] > zone[1]]  # a zero-width zone has nothing to show

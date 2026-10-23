@@ -48,7 +48,8 @@ def text_width(text: str, size: float = LABEL_PT) -> float:
 
 def wrap(text: str, size: float, width: float) -> str:
     """Wrap to the figure's text width, never leaving a legend glyph at a line end."""
-    glued = text.replace("● ", "●\xa0").replace("┃ ", "┃\xa0")  # textwrap breaks only at ASCII whitespace
+    # textwrap breaks only at ASCII whitespace; a footnote's "*" stays with its first word
+    glued = text.replace("● ", "●\xa0").replace("┃ ", "┃\xa0").replace("* ", "*\xa0")
     return textwrap.fill(glued, int((width - 2 * MARGIN) * 72 / (size * 0.55))).replace("\xa0", " ")
 
 
@@ -114,7 +115,8 @@ def blocks(bands: list[FeasibilityBand], plot_evidence: bool, width: float) -> t
         ax_h = body + (max((p[3] for p in placed), default=-1) + 1) * LEVEL + 0.1
         # Below the axes: the evidence legend, the caption paragraph, then the notes, each wrapped
         texts = [(band.evidence_legend, 10.0, muted)] if plot_evidence else []
-        texts += [(" ".join(band.caption), CAPTION_PT, ink), *((note, 10.0, muted) for note in band.notes)]
+        caption, notes = (band.evidence_caption, []) if plot_evidence else (band.caption, band.notes)
+        texts += [(" ".join(caption), CAPTION_PT, ink), *((note, 10.0, muted) for note in notes)]
         wrapped = [(wrap(text, size, width), size, color) for text, size, color in texts]
         out.append((band, x_range, xlabel, ax_h, placed, wrapped))
         height += TITLE + ax_h + XAXIS + sum(text_height(text) for text, _, _ in wrapped) + GAP

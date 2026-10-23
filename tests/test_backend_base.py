@@ -318,15 +318,14 @@ class BackendTestBase(ABC):
             [
                 "Models may use the whole image",
                 "Required accuracy",
-                "Requirements through 95.7% are demonstrated",
+                "demonstrated",
                 "unknown",
                 "95.7% lower confidence bound",
-                "95% requirement: demonstrated ✓",
-                "99% requirement: not enough evidence ?",
-                "Your model scored 96.9% on the 5,000 evaluation images. Allowing for sampling uncertainty gives a"
-                " lower confidence bound of 95.7%. Bounds concern new images drawn from the same population."
-                " Confidence is 95% jointly across this evaluation.",
-                "The group-based ceiling (72.1%) does not limit models that distinguish individual images.",
+                "95%: demonstrated ✓",
+                "99%: insufficient evidence ?",
+                "Your model scored 96.9% on 5,000 evaluation images; given sampling uncertainty, its lower confidence"
+                " bound is 95.7%. Bounds apply to new images from the same population, at 95% joint confidence.",
+                "Group-based ceiling (72.1%) applies only to models that give one answer per group.",
             ],
             zones=2,
         )
@@ -341,15 +340,14 @@ class BackendTestBase(ABC):
         self.validate_feasibility_result(
             result,
             [
-                "ruled out under the recorded assumptions",
+                "ruled out*",
                 "93.0% upper confidence bound",
                 "91.2% lower confidence bound",
-                "90% requirement: demonstrated ✓",
-                "95% requirement: ruled out under the recorded assumptions ✗",
-                "Your model scored 92.5% on the 5,000 evaluation images. Allowing for sampling uncertainty gives a"
-                " lower confidence bound of 91.2%. Under the recorded assumptions, requirements above 93.0% are"
-                " ruled out at the stated confidence. Bounds concern new images drawn from the same population."
-                " Confidence is 95% jointly across this evaluation.",
+                "90%: demonstrated ✓",
+                "95%: ruled out* ✗",
+                "Your model scored 92.5% on 5,000 evaluation images; given sampling uncertainty, its lower confidence"
+                " bound is 91.2%. Bounds apply to new images from the same population, at 95% joint confidence."
+                " * Ruled out under the recorded assumptions, at the stated confidence.",
             ],
             zones=3,
         )
@@ -367,9 +365,9 @@ class BackendTestBase(ABC):
                 "Evidence conflicts: check assumptions",
                 "92.0% upper confidence bound",
                 "94.0% lower confidence bound",
-                "95% requirement",
-                "The bounds disagree. Check the assumptions, including whether evaluation images entered training."
-                " Even when assumptions hold, the probability that any bound fails is at most 5%.",
+                "95%",
+                "Bounds disagree: check the assumptions, such as evaluation images entering training."
+                " Even when they hold, the chance that any bound fails is at most 5%.",
             ],
             zones=0,
             outline=True,
@@ -380,7 +378,7 @@ class BackendTestBase(ABC):
         backend: BasePlottingBackend,
         mock_feasibility_how_to: MockPlottableFeasibility,
     ) -> None:
-        """One row per source with its observed score and bound, the requirements and the legend line."""
+        """One row per source with its observed score and bound, the requirements, the legend line and caption."""
         result = backend.plot(mock_feasibility_how_to, plot_evidence=True)
         self.validate_feasibility_result(
             result,
@@ -393,8 +391,9 @@ class BackendTestBase(ABC):
                 "72.1% upper bound",
                 "95% required",
                 "99% required",
-                "● observed on the evaluation images · ┃ lower confidence bound for new images from the same population"
-                " · ┃ upper confidence bound",
+                "● observed · ┃ lower confidence bound · ┃ upper confidence bound",
+                "Observed on the evaluation images; bounds apply to new images from the same population, at 95% joint"
+                " confidence.",
             ],
             zones=0,
             faint=True,
@@ -411,10 +410,9 @@ class BackendTestBase(ABC):
         self.validate_feasibility_result(
             result,
             [
-                "Group-based ceiling (models that give one answer per group)",
+                "Group-based ceiling (one answer per group)",
                 "72.1% upper bound",
                 "95% required",
-                "The group-based ceiling (72.1%) does not limit models that distinguish individual images.",
             ],
             zones=0,
             faint=True,
@@ -431,9 +429,9 @@ class BackendTestBase(ABC):
     ) -> None:
         """A far threshold, a bound at the axis edge and a band with no bounds all draw their requirements."""
         for output, marker, zones in (
-            (mock_feasibility_low_threshold, "50% requirement: demonstrated ✓", 2),
-            (mock_feasibility_witness_zero, "95% requirement: not enough evidence ?", 1),
-            (mock_feasibility_empty, "95% requirement: not enough evidence ?", 1),
+            (mock_feasibility_low_threshold, "50%: demonstrated ✓", 2),
+            (mock_feasibility_witness_zero, "95%: insufficient evidence ?", 1),
+            (mock_feasibility_empty, "95%: insufficient evidence ?", 1),
         ):
             result = backend.plot(output, plot_evidence=plot_evidence)
             text = marker[:3] + " required" if plot_evidence else marker
@@ -450,7 +448,7 @@ class BackendTestBase(ABC):
             result,
             [
                 "No bound is available yet.",
-                "Group-based ceiling (models that give one answer per group)",
+                "Group-based ceiling (one answer per group)",
                 "no bound available",
                 "90% required",
             ],
