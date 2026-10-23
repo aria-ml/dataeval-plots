@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.12] - 2026-10-22
+
+- [impr] Read feasibility plots from the full Feasibility output
+- [deps] Require pillow>=13.0.0 for nine CVE fixes and support Python 3.11 to 3.14
+
 ## [0.0.11] - 2026-10-22
 
 - [feat] Add the feasibility plot for DataEval's Feasibility evaluator
