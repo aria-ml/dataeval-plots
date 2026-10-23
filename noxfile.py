@@ -8,7 +8,7 @@ import nox
 import nox_uv
 
 PYTHON_VERSION = f"{version_info[0]}.{version_info[1]}"
-PYTHON_VERSIONS = ["3.10", "3.11", "3.12", "3.13"]
+PYTHON_VERSIONS = ["3.11", "3.12", "3.13", "3.14"]
 PYTHON_RE_PATTERN = re.compile(r"\d\.\d{1,2}")
 IS_CI = bool(os.environ.get("CI"))
 

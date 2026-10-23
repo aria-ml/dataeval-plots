@@ -125,16 +125,34 @@ class MockPlottableDriftMVDC:
         return MockExecutionMetadata(arguments={})
 
 
+@dataclass(frozen=True)
+class MockEndpoint:
+    """DataEval's Endpoint, with only the fields the plot reads."""
+
+    target_spec: str
+    value: float | None
+    direction: Literal["lower", "upper"]
+    state: str
+
+
+@dataclass(frozen=True)
+class MockEvidence:
+    """DataEval's Evidence, with only the fields the plot reads."""
+
+    kind: str
+    information_scope: str
+    unit: str
+    endpoints: tuple[MockEndpoint, ...]
+    details: dict[str, Any]
+
+
 @dataclass
 class MockPlottableFeasibility:
     """Mock feasibility output for testing."""
 
     determinations: pl.DataFrame
-    evidence_table: pl.DataFrame
+    evidence: dict[str, MockEvidence]
     alpha: float = 0.05
-
-    def aggregate_by_evidence(self) -> pl.DataFrame:
-        return self.evidence_table
 
     @property
     def plot_type(self) -> Literal["feasibility"]:
@@ -425,6 +443,16 @@ def _target(
     }
 
 
+# DataEval's evidence id and kind for each source; any other name is an unknown kind that keeps its id
+_SOURCE_IDS = {
+    "your model": ("user_witness/v1", "user_witness/v1"),
+    "built-in k-NN": ("builtin_witness/v1:knn", "builtin_witness/v1"),
+    "built-in linear probe": ("builtin_witness/v1:probe", "builtin_witness/v1"),
+    "repeated labels": ("replica_ceiling/v1", "replica_ceiling/v1"),
+    "group-based ceiling": ("local_panel_ceiling/v1", "local_panel_ceiling/v1"),
+}
+
+
 def _source(
     source: str,
     bound: float | None,
@@ -432,20 +460,18 @@ def _source(
     scope: str = "full_input",
     bound_type: str = "lower",
     n: int | None = 5000,
-    unit: str = "image",
+    unit: str = "item",
 ) -> dict[str, Any]:
+    evidence_id, kind = _SOURCE_IDS.get(source, (source, source))
     return {
-        "source": source,
-        "evidence_id": f"{source.replace(' ', '_')}/v1",
+        "evidence_id": evidence_id,
+        "kind": kind,
         "information_scope": scope,
         "unit": unit,
         "bound_type": bound_type,
         "observed": observed,
         "bound": bound,
         "n": n,
-        "state": "unavailable" if bound is None else "informative",
-        "alpha": 0.01,
-        "basis": "empirical_bernstein",
     }
 
 
@@ -472,27 +498,11 @@ _DETERMINATION_SCHEMA = {
     "witness": pl.Float64,
     "witness_source": pl.String,
 }
-_EVIDENCE_SCHEMA = {
-    "target_spec": pl.String,
-    "metric": _METRIC,
-    "threshold": pl.Float64,
-    "source": pl.String,
-    "evidence_id": pl.String,
-    "information_scope": _SCOPE,
-    "unit": pl.String,
-    "bound_type": pl.Enum(["lower", "upper"]),
-    "observed": pl.Float64,
-    "bound": pl.Float64,
-    "n": pl.Int64,
-    "state": pl.String,
-    "alpha": pl.Float64,
-    "basis": pl.String,
-}
 
 
 def _feasibility(targets: list[dict[str, Any]], sources: list[dict[str, Any]]) -> MockPlottableFeasibility:
     """Every source bounds every target; the deciding witness and ceiling are looked up by bound."""
-    rows, evidence = [], []
+    rows, specs = [], []
     for target in targets:
         target = dict(target)
         spec = _target_spec(target["threshold"], target["judged_scope"], target["metric"], *target.pop("spec"))
@@ -507,12 +517,28 @@ def _feasibility(targets: list[dict[str, Any]], sources: list[dict[str, Any]]) -
                 "witness_source": witness and witness["evidence_id"],
             }
         )
-        keys = {"target_spec": spec, "metric": target["metric"], "threshold": target["threshold"]}
-        evidence += [{**keys, **s} for s in sources]
+        specs.append(spec)
+    evidence = {
+        s["evidence_id"]: MockEvidence(
+            kind=s["kind"],
+            information_scope=s["information_scope"],
+            unit=s["unit"],
+            endpoints=tuple(
+                MockEndpoint(spec, s["bound"], s["bound_type"], "unavailable" if s["bound"] is None else "informative")
+                for spec in specs
+            ),
+            details={
+                "endpoints": {
+                    spec: dict.fromkeys(("variance", "support", "delta", "method"))
+                    | {"mean": s["observed"], "n": s["n"]}
+                    for spec in specs
+                }
+            },
+        )
+        for s in sources
+    }
     return MockPlottableFeasibility(
-        determinations=pl.DataFrame(rows, schema=_DETERMINATION_SCHEMA),
-        evidence_table=pl.DataFrame(evidence, schema=_EVIDENCE_SCHEMA),
-        alpha=0.05,
+        determinations=pl.DataFrame(rows, schema=_DETERMINATION_SCHEMA), evidence=evidence, alpha=0.05
     )
 
 
