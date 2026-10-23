@@ -198,7 +198,26 @@ def plot(
     >>> plot(result, images=dataset)  # Uses seaborn
     """
     plotting_backend = get_backend(backend)
-    return plotting_backend.plot(output, figsize=figsize, **kwargs)
+    return _display_once(plotting_backend.plot(output, figsize=figsize, **kwargs))
+
+
+def _display_once(result: Any) -> Any:
+    """
+    Close a returned matplotlib figure under the notebook inline backend, so the notebook draws it once.
+
+    The inline backend draws every open pyplot figure when a cell ends, and the notebook draws a returned figure as
+    the cell's value, so an open returned figure appears twice. Closing it leaves the returned value as the only
+    drawing. Under any other backend the figure stays open for ``plt.show()``, and a list of figures is left open
+    because a notebook shows a list as text.
+    """
+    import matplotlib
+    from matplotlib.figure import Figure
+
+    if isinstance(result, Figure) and "inline" in matplotlib.get_backend().lower():
+        import matplotlib.pyplot as plt
+
+        plt.close(result)
+    return result
 
 
 def project(
@@ -319,14 +338,16 @@ def project(
                 )
                 for m in methods
             ]
-            return plotting_backend.project_grid(
-                reduced_list,
-                methods=methods,
-                labels=labels_array,
-                label_names=label_names,
-                dimensions=dimensions,
-                figsize=figsize,
-                title=title,
+            return _display_once(
+                plotting_backend.project_grid(
+                    reduced_list,
+                    methods=methods,
+                    labels=labels_array,
+                    label_names=label_names,
+                    dimensions=dimensions,
+                    figsize=figsize,
+                    title=title,
+                )
             )
 
     # Single method
@@ -347,12 +368,14 @@ def project(
             )
         dimensions = embeddings_array.shape[1]  # type: ignore[assignment]
 
-    return plotting_backend.project(
-        embeddings_array,
-        labels=labels_array,
-        label_names=label_names,
-        method=method or "custom",
-        dimensions=dimensions,
-        figsize=figsize,
-        title=title,
+    return _display_once(
+        plotting_backend.project(
+            embeddings_array,
+            labels=labels_array,
+            label_names=label_names,
+            method=method or "custom",
+            dimensions=dimensions,
+            figsize=figsize,
+            title=title,
+        )
     )
