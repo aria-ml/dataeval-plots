@@ -327,9 +327,9 @@ class TestMatplotlibFeasibility:
         assert isinstance(fig, Figure)
         assert len(fig.axes) == 1
         texts = _texts(fig)
-        assert "Requirements through 95.7% are demonstrated" in texts
+        assert "demonstrated" in texts
         assert "95.7% lower confidence bound" in texts
-        assert "95% requirement: demonstrated ✓" in texts
+        assert "95%: demonstrated ✓" in texts
 
     def test_one_axes_per_band(self, mock_feasibility_two_bands) -> None:
         fig = MatplotlibBackend().plot(mock_feasibility_two_bands)
@@ -338,11 +338,11 @@ class TestMatplotlibFeasibility:
     def test_conflict(self, mock_feasibility_conflict) -> None:
         texts = _texts(MatplotlibBackend().plot(mock_feasibility_conflict))
         assert "Evidence conflicts: check assumptions" in texts
-        assert not any(t.startswith("Requirements through") for t in texts)
+        assert "demonstrated" not in texts
 
     def test_ruled_out_and_empty(self, mock_feasibility_ruled_out, mock_feasibility_empty) -> None:
         ruled_out = [t.replace("\n", " ") for t in _texts(MatplotlibBackend().plot(mock_feasibility_ruled_out))]
-        assert "ruled out under the recorded assumptions" in ruled_out
+        assert "ruled out*" in ruled_out
         assert "unknown" in _texts(MatplotlibBackend().plot(mock_feasibility_empty))
 
     def test_evidence(self, mock_feasibility_how_to) -> None:
@@ -367,10 +367,18 @@ class TestMatplotlibFeasibility:
     def test_evidence_legend(self, mock_feasibility_how_to) -> None:
         fig = MatplotlibBackend().plot(mock_feasibility_how_to, plot_evidence=True)
         texts = [t.replace("\n", " ") for t in _texts(fig)]
+        assert "● observed · ┃ lower confidence bound · ┃ upper confidence bound" in texts
+
+    def test_evidence_caption_drops_the_notes(self, mock_feasibility_how_to) -> None:
+        """The evidence view draws its short caption and no narrower-scope note: the row label carries the scope."""
+        fig = MatplotlibBackend().plot(mock_feasibility_how_to, plot_evidence=True)
+        texts = [t.replace("\n", " ") for t in _texts(fig)]
         assert (
-            "● observed on the evaluation images · ┃ lower confidence bound for new images from the same population"
-            " · ┃ upper confidence bound"
+            "Observed on the evaluation images; bounds apply to new images from the same population, at 95% joint"
+            " confidence."
         ) in texts
+        assert "Group-based ceiling (one answer per group)" in texts
+        assert not any("applies only to" in t or "scored" in t for t in texts)
 
     def test_per_class_ap_titles(self, mock_feasibility_per_class_ap) -> None:
         texts = _texts(MatplotlibBackend().plot(mock_feasibility_per_class_ap))

@@ -11,6 +11,7 @@ import pytest
 from conftest import MockEndpoint, MockPlottableFeasibility, _feasibility, _source, _target
 
 from dataeval_plots import plot
+from dataeval_plots.backends import _feasibility_layout as layout
 from dataeval_plots.backends._shared import (
     _evidence_rows,
     draw_bounding_boxes,
@@ -469,23 +470,28 @@ class TestPrepareFeasibilityData:
         assert band.demonstrated == 0.957
         assert band.ruled_out is None
         assert band.conflict is False
-        assert band.markers == [
-            (0.95, "95% requirement: demonstrated ✓"),
-            (0.99, "99% requirement: not enough evidence ?"),
-        ]
+        assert band.markers == [(0.95, "95%: demonstrated ✓"), (0.99, "99%: insufficient evidence ?")]
         assert band.boundary_labels == [(0.957, "95.7% lower confidence bound", "lower", True)]
         assert band.evidence_markers == [(0.95, "95% required"), (0.99, "99% required")]
-        assert band.caption[0] == (
-            "Your model scored 96.9% on the 5,000 evaluation images. Allowing for sampling uncertainty gives a "
-            "lower confidence bound of 95.7%."
-        )
-        assert band.caption[-1] == (
-            "Bounds concern new images drawn from the same population. Confidence is 95% jointly across this "
-            "evaluation."
-        )
-        assert band.notes == [
-            "The group-based ceiling (72.1%) does not limit models that distinguish individual images."
+        assert band.caption == [
+            "Your model scored 96.9% on 5,000 evaluation images; given sampling uncertainty, its lower confidence "
+            "bound is 95.7%.",
+            "Bounds apply to new images from the same population, at 95% joint confidence.",
         ]
+        assert band.notes == ["Group-based ceiling (72.1%) applies only to models that give one answer per group."]
+
+    def test_evidence_caption_is_short_without_notes(self, mock_feasibility_how_to):
+        """The evidence view's caption replaces the band's caption and notes; the restricted row's label has its
+        scope."""
+        (band,) = prepare_feasibility_data(mock_feasibility_how_to)
+        assert band.evidence_caption == [
+            "Observed on the evaluation images; bounds apply to new images from the same population, at 95% joint "
+            "confidence."
+        ]
+        assert band.evidence[-1].label == "Group-based ceiling (one answer per group)"
+        *_, ((*_, texts),) = layout.blocks([band], plot_evidence=True, width=10.0)
+        drawn = [" ".join(text.split()) for text, _, _ in texts]
+        assert drawn == ["● observed · ┃ lower confidence bound · ┃ upper confidence bound", *band.evidence_caption]
 
     def test_how_to_evidence_rows(self, mock_feasibility_how_to):
         (band,) = prepare_feasibility_data(mock_feasibility_how_to)
@@ -493,7 +499,7 @@ class TestPrepareFeasibilityData:
             ("Your model", "lower", 0.957, 0.969, False),
             ("Built-in k-NN", "lower", 0.923, 0.940, False),
             ("Built-in linear probe", "lower", 0.882, 0.900, False),
-            ("Group-based ceiling (models that give one answer per group)", "upper", 0.721, None, True),
+            ("Group-based ceiling (one answer per group)", "upper", 0.721, None, True),
         ]
         # Bound labels outward from the observed score: left of a lower bound, right of an upper one
         assert [(r.bound_label, r.observed_label, r.bound_left) for r in (band.evidence[0], band.evidence[-1])] == [
@@ -505,12 +511,18 @@ class TestPrepareFeasibilityData:
         (band,) = prepare_feasibility_data(mock_feasibility_ruled_out)
         assert band.demonstrated == 0.912
         assert band.ruled_out == 0.93
-        assert "Under the recorded assumptions, requirements above 93.0% are ruled out at the stated confidence." in (
-            band.caption
-        )
-        assert (0.95, "95% requirement: ruled out under the recorded assumptions ✗") in band.markers
-        assert feasibility_zones(band)[-1][3] == "ruled out under the recorded assumptions"
+        assert band.caption[-1] == "* Ruled out under the recorded assumptions, at the stated confidence."
+        assert feasibility_zones(band)[-1][3] == "ruled out*"
         assert (0.93, "93.0% upper confidence bound", "upper", False) in band.boundary_labels
+
+    def test_ruled_out_marker_has_its_footnote(self, mock_feasibility_ruled_out):
+        """Every "ruled out*" marker has the "*" footnote, which names the recorded assumptions, in its caption."""
+        (band,) = prepare_feasibility_data(mock_feasibility_ruled_out)
+        assert band.markers == [(0.9, "90%: demonstrated ✓"), (0.95, "95%: ruled out* ✗")]
+        assert any(line.startswith("* Ruled out under the recorded assumptions") for line in band.caption)
+        # At the default 9-inch width a plain wrap would end a line on the footnote's "*"
+        wrapped = layout.wrap(" ".join(band.caption), layout.CAPTION_PT, 9.0)
+        assert "\n* Ruled out" in wrapped
 
     def test_group_based_ceiling_caption_awaits_sign_off(self, mock_feasibility_ruled_out):
         output = mock_feasibility_ruled_out
@@ -518,16 +530,22 @@ class TestPrepareFeasibilityData:
             output.evidence["replica_ceiling/v1"], kind="local_panel_ceiling/v1"
         )
         (band,) = prepare_feasibility_data(output)
-        assert (
-            "Under the recorded assumptions, requirements above 93.0% are ruled out at the stated confidence"
-            " (group-based ceiling; its validity argument awaits lead-scientist sign-off)."
-        ) in band.caption
+        assert band.caption[-1] == (
+            "* Ruled out under the recorded assumptions, at the stated confidence"
+            " (group-based ceiling; validity pending lead-scientist sign-off)."
+        )
 
     def test_conflict(self, mock_feasibility_conflict):
         (band,) = prepare_feasibility_data(mock_feasibility_conflict)
         assert band.conflict is True
         assert band.demonstrated is None and band.ruled_out is None
-        assert any("at most 5%" in line for line in band.caption)
+        assert band.caption == [
+            "Bounds disagree: check the assumptions, such as evaluation images entering training. Even when they hold,"
+            " the chance that any bound fails is at most 5%."
+        ]
+        assert band.markers == [(0.95, "95%")]
+        # The evidence view keeps the conflict caption after its own
+        assert band.evidence_caption[1:] == band.caption
         # The bounds cross, so each label still points away from the other: lower right, upper left
         assert band.boundary_labels == [
             (0.94, "94.0% lower confidence bound", "lower", False),
@@ -538,7 +556,7 @@ class TestPrepareFeasibilityData:
         """Review Focus 1: an all-unknown band still carries its markers."""
         (band,) = prepare_feasibility_data(mock_feasibility_empty)
         assert band.demonstrated is None and band.ruled_out is None and band.conflict is False
-        assert band.markers == [(0.95, "95% requirement: not enough evidence ?")]
+        assert band.markers == [(0.95, "95%: insufficient evidence ?")]
         assert band.boundary_labels == []
 
     def test_two_bands(self, mock_feasibility_two_bands):
@@ -548,8 +566,8 @@ class TestPrepareFeasibilityData:
         assert [b.subtitle for b in bands] == ["Models may use the whole image", "Models may use only the embeddings"]
         assert [b.demonstrated for b in bands] == [0.957, 0.923]
         assert [b.markers for b in bands] == [
-            [(0.95, "95% requirement: demonstrated ✓")],
-            [(0.95, "95% requirement: not enough evidence ?")],
+            [(0.95, "95%: demonstrated ✓")],
+            [(0.95, "95%: insufficient evidence ?")],
         ]
         # The whole-image model does not count for embedding-only models
         assert [r.restricted for r in bands[1].evidence] == [True, False]
@@ -559,7 +577,7 @@ class TestPrepareFeasibilityData:
         output = _restat(mock_feasibility_how_to, mean=None)
         (band,) = prepare_feasibility_data(output)
         assert not any("scored" in line for line in band.caption)
-        assert band.caption[-1].startswith("Bounds concern new images")
+        assert band.caption[-1].startswith("Bounds apply to new images")
 
     def test_low_threshold(self, mock_feasibility_low_threshold):
         """Review Focus 4: the axis extends to a threshold below the bounds."""
@@ -576,7 +594,7 @@ class TestPrepareFeasibilityData:
         (band,) = prepare_feasibility_data(mock_feasibility_ceiling_one)
         assert band.ruled_out is None
         assert band.boundary_labels == [(0.957, "95.7% lower confidence bound", "lower", True)]
-        assert not any("ruled out" in line for line in band.caption)
+        assert not any("ruled out" in line.lower() for line in band.caption)
         assert [zone[0] for zone in feasibility_zones(band)] == ["demonstrated", "unknown"]
 
     def test_witness_at_zero_demonstrates_nothing(self, mock_feasibility_witness_zero):
@@ -604,22 +622,20 @@ class TestPrepareFeasibilityData:
             ],
         )
         (band,) = prepare_feasibility_data(output)
-        assert band.caption[1] == (
-            "Under the recorded assumptions, requirements above 93.0% are ruled out at the stated confidence."
-        )
+        assert band.caption[-1] == "* Ruled out under the recorded assumptions, at the stated confidence."
 
     def test_observed_without_n(self, mock_feasibility_how_to):
         output = _restat(mock_feasibility_how_to, n=None)
         (band,) = prepare_feasibility_data(output)
         assert band.caption[0] == (
-            "Your model scored 96.9% on the evaluation images. Allowing for sampling uncertainty gives a lower "
-            "confidence bound of 95.7%."
+            "Your model scored 96.9% on the evaluation images; given sampling uncertainty, its lower confidence "
+            "bound is 95.7%."
         )
 
     def test_unit_falls_back_to_image(self, mock_feasibility_empty):
         (band,) = prepare_feasibility_data(mock_feasibility_empty)
         assert band.subtitle == "Models may use the whole image"
-        assert band.caption[-1].startswith("Bounds concern new images")
+        assert band.caption[-1].startswith("Bounds apply to new images")
 
     def test_narrower_embedding_ceiling_note(self):
         output = _feasibility(
@@ -630,10 +646,8 @@ class TestPrepareFeasibilityData:
             ],
         )
         (band,) = prepare_feasibility_data(output)
-        assert band.notes == [
-            "The group-based ceiling (88.0%) applies only to models restricted to the embeddings; it does not limit "
-            "the models judged here."
-        ]
+        assert band.notes == ["Group-based ceiling (88.0%) applies only to models restricted to the embeddings."]
+        assert band.evidence[-1].label == "Group-based ceiling (embeddings only)"
 
     def test_per_class_ap_titles(self, mock_feasibility_per_class_ap):
         bands = prepare_feasibility_data(mock_feasibility_per_class_ap)
@@ -656,9 +670,10 @@ class TestPrepareFeasibilityData:
         """At alpha 0.025 the captions read 97.5% and 2.5%, as DataEval prints them, never a rounded 98% or 2%."""
         mock_feasibility_how_to.alpha = mock_feasibility_conflict.alpha = 0.025
         (band,) = prepare_feasibility_data(mock_feasibility_how_to)
-        assert band.caption[-1].endswith("Confidence is 97.5% jointly across this evaluation.")
+        assert band.caption[-1].endswith("at 97.5% joint confidence.")
+        assert band.evidence_caption[0].endswith("at 97.5% joint confidence.")
         (conflict,) = prepare_feasibility_data(mock_feasibility_conflict)
-        assert conflict.caption[0].endswith("the probability that any bound fails is at most 2.5%.")
+        assert conflict.caption[0].endswith("the chance that any bound fails is at most 2.5%.")
 
     def test_bounds_round_away_from_overstating(self):
         """Lower bounds round down and upper bounds up, to 0.1%, everywhere a bound is written."""
@@ -671,9 +686,7 @@ class TestPrepareFeasibilityData:
         )
         (band,) = prepare_feasibility_data(output)
         assert [b[1] for b in band.boundary_labels] == ["74.6% lower confidence bound", "97.6% upper confidence bound"]
-        assert feasibility_zones(band)[0][3] == "Requirements through 74.6% are demonstrated"
-        assert band.caption[0].endswith("gives a lower confidence bound of 74.6%.")
-        assert "requirements above 97.6% are ruled out" in band.caption[1]
+        assert band.caption[0].endswith("its lower confidence bound is 74.6%.")
         assert [r.bound_label for r in band.evidence] == ["74.6% lower bound", "97.6% upper bound"]
         ap = _feasibility(
             [_target(0.4, "demonstrated_feasible", witness=0.40656, metric="ap")], [_source("k-NN", 0.40656)]
@@ -683,7 +696,7 @@ class TestPrepareFeasibilityData:
 
     def test_threshold_keeps_its_decimals(self):
         (band,) = prepare_feasibility_data(_feasibility([_target(0.955, "unresolved")], []))
-        assert band.markers == [(0.955, "95.5% requirement: not enough evidence ?")]
+        assert band.markers == [(0.955, "95.5%: insufficient evidence ?")]
         assert band.evidence_markers == [(0.955, "95.5% required")]
 
     def test_unit_comes_from_the_deciding_bounds(self):
@@ -698,7 +711,7 @@ class TestPrepareFeasibilityData:
         sequences, frames = prepare_feasibility_data(output)
         assert sequences.subtitle == "Models may use the whole sequence"
         assert frames.subtitle == "Models may use the whole image"
-        assert frames.caption[-1].startswith("Bounds concern new sequences")
+        assert frames.caption[-1].startswith("Bounds apply to new sequences")
 
     def test_source_without_a_bound(self, mock_feasibility_how_to):
         """A source with no bound is a faint row saying so; a band with no bound at all carries a note."""
@@ -711,7 +724,7 @@ class TestPrepareFeasibilityData:
         assert (row.bound, row.observed, row.bound_label, row.faint) == (None, None, "no bound available", True)
         assert band.evidence_note == "No bound is available yet."
         assert band.notes == []
-        assert band.evidence_legend.endswith("from the same population")
+        assert band.evidence_legend == "● observed · ┃ lower confidence bound"
         assert feasibility_evidence_axis(band)[0] == (0.85, 1.0)
         mixed = _feasibility(
             [_target(0.95, "demonstrated_feasible", witness=0.957)],
@@ -726,9 +739,6 @@ class TestPrepareFeasibilityData:
 
     def test_evidence_legend(self, mock_feasibility_how_to, mock_feasibility_two_bands):
         (band,) = prepare_feasibility_data(mock_feasibility_how_to)
-        assert band.evidence_legend == (
-            "● observed on the evaluation images · ┃ lower confidence bound for new images from the same population"
-            " · ┃ upper confidence bound"
-        )
+        assert band.evidence_legend == "● observed · ┃ lower confidence bound · ┃ upper confidence bound"
         no_ceiling = prepare_feasibility_data(mock_feasibility_two_bands)[0]
-        assert no_ceiling.evidence_legend.endswith("from the same population")
+        assert no_ceiling.evidence_legend == "● observed · ┃ lower confidence bound"

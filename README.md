@@ -162,60 +162,64 @@ subtitle that says which models the band judges:
 
 The axis is split into three zones. Each zone classifies the requirements that fall inside it:
 
-- **Demonstrated** runs from the axis minimum up to the lower confidence bound of the best tested model. The band
-  reads "Requirements through *x*% are demonstrated".
+- **Demonstrated** runs from the axis minimum up to the lower confidence bound of the best tested model, which the
+  label under the band names, for example "95.7% lower confidence bound". The zone reads "demonstrated".
 - **Unknown** lies between the other two zones. The evidence neither demonstrates nor rules out these requirements.
-- **Ruled out** runs from the upper confidence bound of the lowest applicable ceiling to the top of the axis. It holds
-  only under the recorded assumptions, and the zone reads "ruled out under the recorded assumptions" wherever the
-  label fits.
+- **Ruled out** runs from the upper confidence bound of the lowest applicable ceiling to the top of the axis. The zone
+  reads "ruled out\*" wherever the label fits.
+
+The `*` marks a footnote: "ruled out" holds only under the recorded assumptions. Wherever "ruled out\*" appears, the
+caption under the same band ends with that footnote, "\* Ruled out under the recorded assumptions, at the stated
+confidence."
 
 Each of your requirements is marked on the axis, and the marker states the determination in words:
 
 | Marker | Meaning |
 |--------|---------|
-| "95% requirement: demonstrated ✓" | The requirement is at or below the lower confidence bound |
-| "not enough evidence ?" | The requirement falls in the unknown zone, and the evidence cannot decide it |
-| "ruled out under the recorded assumptions ✗" | The requirement is above the upper confidence bound of a ceiling |
-| "not ruled out ?" | The requirement also falls in the unknown zone: it is not above any ceiling's upper confidence bound, and no tested model reaches it |
+| "95%: demonstrated ✓" | The requirement is at or below the lower confidence bound |
+| "95%: insufficient evidence ?" | The requirement falls in the unknown zone, and the evidence cannot decide it |
+| "95%: ruled out\* ✗" | The requirement is above the upper confidence bound of a ceiling, under the recorded assumptions (see the footnote) |
+| "95%: not ruled out ?" | The requirement also falls in the unknown zone: it is not above any ceiling's upper confidence bound, and no tested model reaches it |
 
 The caption under the band reports the observed score next to the lower confidence bound it supports, for example
-"Your model scored 91.0% on the 2,000 evaluation images. Allowing for sampling uncertainty gives a lower
-confidence bound of 88.5%." The sentence about the observed score appears only when an observed score exists. The
-caption then states that the bounds concern new images drawn from the same population, and that confidence holds
-jointly across the whole evaluation (for example "Confidence is 95% jointly across this evaluation").
+"Your model scored 91.0% on 2,000 evaluation images; given sampling uncertainty, its lower confidence bound is
+88.5%." The sentence about the observed score appears only when an observed score exists. The caption then states
+that the bounds apply to new images from the same population, and that confidence holds jointly across the whole
+evaluation (for example "Bounds apply to new images from the same population, at 95% joint confidence.").
 
 Numbers read as DataEval prints them. Bounds are given to 0.1%, a lower bound rounded down and an upper bound rounded
 up, so rounding never overstates what the evidence shows. Requirements and confidence keep their own decimals, such as
-"95.5% requirement" or "Confidence is 97.5%".
+"95.5%" or "at 97.5% joint confidence".
 
-When a ceiling bounds the band, the caption adds "Under the recorded assumptions, requirements above *x*% are ruled out
-at the stated confidence." A group-based ceiling carries the extra note that its validity argument awaits lead-scientist
-sign-off.
+When a ceiling bounds the band, the caption ends with the footnote "\* Ruled out under the recorded assumptions, at
+the stated confidence." A group-based ceiling adds "(group-based ceiling; validity pending lead-scientist sign-off)".
 
 A ceiling that applies only to narrower models than the band judges never draws a zone. It appears as a note instead,
-for example that the group-based ceiling does not limit models that distinguish individual images.
+for example "Group-based ceiling (72.1%) applies only to models that give one answer per group."
 
 ### Other outcomes
 
-- **Ruled out.** A requirement above the lowest applicable ceiling's upper confidence bound is marked "ruled out
-  under the recorded assumptions ✗". The ruled-out zone covers everything above that bound, and the caption reads
-  "Under the recorded assumptions, requirements above *x*% are ruled out at the stated confidence."
+- **Ruled out.** A requirement above the lowest applicable ceiling's upper confidence bound is marked "ruled out\*
+  ✗". The ruled-out zone covers everything above that bound, which the label under the band names, for example
+  "93.0% upper confidence bound". The caption ends with the footnote "\* Ruled out under the recorded assumptions, at
+  the stated confidence."
 - **Evidence conflict.** When bounds from different sources contradict each other, the band draws no zones. A dashed
   warning outline reads "Evidence conflicts: check assumptions", both clashing bounds are marked, and the caption
-  says that the bounds disagree and to check the assumptions, including whether evaluation images entered training.
-  Even when the assumptions hold, the probability that any bound fails is at most the stated alpha (for example 5% at
-  95% confidence).
+  reads "Bounds disagree: check the assumptions, such as evaluation images entering training. Even when they hold,
+  the chance that any bound fails is at most 5%." The 5% is the stated alpha, at 95% confidence.
 - **Bounds at 0% or 100%.** A lower confidence bound of 0% demonstrates nothing and an upper confidence bound of 100%
   rules nothing out, so neither draws a zone.
 
 ### Showing the evidence
 
 `plot_evidence=True` replaces each band with one row per evidence source. Each row shows the observed score as a dot
-and the confidence bound as a tick, with a legend line explaining both: the dot is the score observed on the
-evaluation images, and the tick is the lower (or upper) confidence bound for new images from the same population.
-Evidence that does not apply to the judged models is drawn faint and labeled with the models it applies to. A source
-that produced no bound for the quantity is listed faint as "no bound available", and when no source has a bound the
-view says "No bound is available yet." instead of showing empty axes.
+and the confidence bound as a tick, with the legend "● observed · ┃ lower confidence bound" (and "· ┃ upper confidence
+bound" when a ceiling has one). The caption says what both mean: "Observed on the evaluation images; bounds apply to
+new images from the same population, at 95% joint confidence." In a conflict, the conflict caption follows it.
+Evidence that does not apply to the judged models is drawn faint, and its label names the models it applies to, for
+example "Group-based ceiling (one answer per group)", so this view has no narrower-scope notes. A source that produced
+no bound for the quantity is listed faint as "no bound available", and when no source has a bound the view says "No
+bound is available yet." instead of showing empty axes.
 
 ## Extending the Package
 
