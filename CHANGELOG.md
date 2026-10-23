@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.13] - 2026-10-22
+
+- [fix] Draw each matplotlib plot once in notebooks
+
 ## [0.0.12] - 2026-10-22
 
 - [impr] Read feasibility plots from the full Feasibility output
