@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.15] - 2026-10-24
+
+- [feat] Draw Feasibility recall requirements with each model's false-positive bound
+
 ## [0.0.14] - 2026-10-22
 
 - [impr] Tighten the feasibility plot's wording without dropping a qualifier
