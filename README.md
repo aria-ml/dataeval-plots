@@ -192,7 +192,13 @@ up, so rounding never overstates what the evidence shows. Requirements and confi
 "95.5%" or "at 97.5% joint confidence".
 
 When a ceiling bounds the band, the caption ends with the footnote "\* Ruled out under the recorded assumptions, at
-the stated confidence." A group-based ceiling adds "(group-based ceiling; validity pending lead-scientist sign-off)".
+the stated confidence."
+
+A recall requirement is titled "Required recall for Tank (at most 5% false positives)". Only a witness whose own upper
+confidence bound on false positives is within that limit counts; the caption adds its bound after the observed
+sentence, for example "Its upper confidence bound on false positives is 4.1% (observed 2.6% of 651 other images)." In
+the evidence view, a witness over the limit keeps its recall bound and observed score but is drawn faint, its label
+saying why it is not counted, for example "66.0% lower bound · not counted: false positives ≤8.3% (limit 5%)".
 
 A ceiling that applies only to narrower models than the band judges never draws a zone. It appears as a note instead,
 for example "Group-based ceiling (72.1%) applies only to models that give one answer per group."

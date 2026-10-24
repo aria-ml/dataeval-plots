@@ -290,7 +290,12 @@ class PlottableDriftMVDC(Plottable, Protocol):
 
 
 class FeasibilityEndpoint(Protocol):
-    """One bound on one target, as DataEval's ``Endpoint`` records it; only the fields the plot reads."""
+    """
+    One bound on one target, as DataEval's ``Endpoint`` records it; only the fields the plot reads.
+
+    Newer outputs also give ``quantity``, ``"metric"`` or ``"false_positive_rate"``; the plot reads it with a default
+    of ``"metric"`` so older outputs still plot.
+    """
 
     @property
     def target_spec(self) -> str: ...

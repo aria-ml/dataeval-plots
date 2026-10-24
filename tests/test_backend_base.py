@@ -352,6 +352,28 @@ class BackendTestBase(ABC):
             zones=3,
         )
 
+    def test_plot_feasibility_recall(
+        self,
+        backend: BasePlottingBackend,
+        mock_feasibility_recall: MockPlottableFeasibility,
+    ) -> None:
+        """A recall requirement is titled with its false-positive limit and its caption gives the witness's bound."""
+        result = backend.plot(mock_feasibility_recall)
+        self.validate_feasibility_result(
+            result,
+            [
+                "Required recall for Tank (at most 5% false positives)",
+                "62.1% lower confidence bound",
+                "85.0% upper confidence bound",
+                "60%: demonstrated ✓",
+                "Your model scored 70.0% recall on 160 Tank images; given sampling uncertainty, its lower confidence"
+                " bound is 62.1%. Its upper confidence bound on false positives is 4.1% (observed 2.6% of 651 other"
+                " images). Bounds apply to new images from the same population, at 95% joint confidence."
+                " * Ruled out under the recorded assumptions, at the stated confidence.",
+            ],
+            zones=3,
+        )
+
     def test_plot_feasibility_conflict(
         self,
         backend: BasePlottingBackend,

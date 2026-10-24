@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -410,6 +411,10 @@ class TestEvidenceRows:
             "bound": 0.957,
             "n": 5000,
             "state": "informative",
+            "quantity": "metric",
+            "uncertified": False,
+            "false_positive_bound": None,
+            "false_positive_limit": None,
         }
         assert rows["source"].to_list()[:4] == [
             "your model",
@@ -457,7 +462,7 @@ class TestEvidenceRows:
         assert _evidence_rows(output).equals(before)
 
     def test_no_evidence(self, mock_feasibility_empty):
-        assert _evidence_rows(mock_feasibility_empty).shape == (0, 12)
+        assert _evidence_rows(mock_feasibility_empty).shape == (0, 16)
 
 
 class TestPrepareFeasibilityData:
@@ -524,16 +529,99 @@ class TestPrepareFeasibilityData:
         wrapped = layout.wrap(" ".join(band.caption), layout.CAPTION_PT, 9.0)
         assert "\n* Ruled out" in wrapped
 
-    def test_group_based_ceiling_caption_awaits_sign_off(self, mock_feasibility_ruled_out):
+    def test_group_based_ceiling_caption_has_no_sign_off(self, mock_feasibility_ruled_out):
         output = mock_feasibility_ruled_out
         output.evidence["replica_ceiling/v1"] = replace(
             output.evidence["replica_ceiling/v1"], kind="local_panel_ceiling/v1"
         )
         (band,) = prepare_feasibility_data(output)
-        assert band.caption[-1] == (
-            "* Ruled out under the recorded assumptions, at the stated confidence"
-            " (group-based ceiling; validity pending lead-scientist sign-off)."
+        assert band.caption[-1] == "* Ruled out under the recorded assumptions, at the stated confidence."
+
+    def test_recall_band(self, mock_feasibility_recall):
+        (band,) = prepare_feasibility_data(mock_feasibility_recall)
+        assert band.title == "Required recall for Tank (at most 5% false positives)"
+        assert band.markers == [(0.6, "60%: demonstrated ✓")]
+        assert band.boundary_labels == [
+            (0.621, "62.1% lower confidence bound", "lower", True),
+            (0.85, "85.0% upper confidence bound", "upper", False),
+        ]
+        assert band.caption == [
+            "Your model scored 70.0% recall on 160 Tank images; given sampling uncertainty, its lower confidence"
+            " bound is 62.1%.",
+            "Its upper confidence bound on false positives is 4.1% (observed 2.6% of 651 other images).",
+            "Bounds apply to new images from the same population, at 95% joint confidence.",
+            "* Ruled out under the recorded assumptions, at the stated confidence.",
+        ]
+
+    def test_recall_evidence_rows_hold_only_the_recall_bounds(self, mock_feasibility_recall):
+        (band,) = prepare_feasibility_data(mock_feasibility_recall)
+        # The false-positive upper bound is no ceiling: one row per source, three in all
+        assert [(r.source, r.bound_type, r.bound) for r in band.evidence] == [
+            ("your model", "lower", 0.621),
+            ("built-in k-NN", "lower", 0.66),
+            ("repeated labels", "upper", 0.85),
+        ]
+        # Not counted, yet both its measured bounds stay visible
+        knn = band.evidence[1]
+        assert knn.observed == 0.72 and knn.faint
+        assert knn.bound_label == "66.0% lower bound · not counted: false positives ≤8.3% (limit 5%)"
+        assert not band.evidence[0].faint
+        assert band.evidence[0].bound_label == "62.1% lower bound"
+        assert band.ruled_out == 0.85
+
+    def test_recall_false_positive_bound_is_read_from_its_tagged_stats(self, mock_feasibility_recall):
+        rows = _evidence_rows(mock_feasibility_recall)
+        fp = rows.filter(pl.col("quantity") == "false_positive_rate").sort("evidence_id")
+        assert fp["bound"].to_list() == [0.083, 0.041]
+        assert fp["observed"].to_list() == [0.07, 0.026]
+        assert fp["n"].to_list() == [651, 651]
+
+    def test_recall_witness_without_a_false_positive_bound_is_not_counted(self, mock_feasibility_recall):
+        output = mock_feasibility_recall
+        knn = output.evidence["builtin_witness/v1:knn"]
+        output.evidence["builtin_witness/v1:knn"] = replace(knn, endpoints=knn.endpoints[:1], details={
+            "endpoints": {k: v for k, v in knn.details["endpoints"].items() if not k.endswith("#false_positive_rate")}
+        })  # fmt: skip
+        (band,) = prepare_feasibility_data(output)
+        assert band.evidence[1].bound == 0.66 and band.evidence[1].faint
+        assert band.evidence[1].bound_label == "66.0% lower bound · not counted: no false-positive bound"
+
+    def test_missing_false_positive_stats_leave_the_bound_without_an_observed_rate(self, mock_feasibility_recall):
+        output = mock_feasibility_recall
+        ev = output.evidence["user_witness/v1"]
+        output.evidence["user_witness/v1"] = replace(
+            ev, details={"endpoints": {k: v for k, v in ev.details["endpoints"].items() if "#" not in k}}
         )
+        (band,) = prepare_feasibility_data(output)
+        assert "Its upper confidence bound on false positives is 4.1%." in band.caption
+
+    def test_false_positive_sentence_without_an_observed_score(self, mock_feasibility_recall):
+        output = mock_feasibility_recall
+        ev = output.evidence["user_witness/v1"]
+        stats = {k: v | {"mean": None} if "#" not in k else v for k, v in ev.details["endpoints"].items()}
+        output.evidence["user_witness/v1"] = replace(ev, details={"endpoints": stats})
+        (band,) = prepare_feasibility_data(output)
+        assert not any("scored" in line for line in band.caption)
+        assert (
+            "Its upper confidence bound on false positives is 4.1% (observed 2.6% of 651 other images)." in band.caption
+        )
+
+    def test_outputs_without_quantity_still_plot(self, mock_feasibility_ruled_out):
+        for eid, ev in mock_feasibility_ruled_out.evidence.items():  # endpoints as an older DataEval gives them
+            old = tuple(SimpleNamespace(**{k: v for k, v in vars(e).items() if k != "quantity"}) for e in ev.endpoints)
+            mock_feasibility_ruled_out.evidence[eid] = replace(ev, endpoints=old)
+        (band,) = prepare_feasibility_data(mock_feasibility_ruled_out)
+        assert band.title == "Required accuracy"
+        assert band.ruled_out == 0.93
+
+    def test_confidence_rounds_down_and_error_share_up(self, mock_feasibility_ruled_out, mock_feasibility_conflict):
+        """alpha = 0.05 / 3 reads as the printout does: never "98.3333%" or "1.66667%", never overstated."""
+        mock_feasibility_ruled_out.alpha = mock_feasibility_conflict.alpha = 0.05 / 3
+        (band,) = prepare_feasibility_data(mock_feasibility_ruled_out)
+        assert "at 98.3% joint confidence." in band.caption[1]
+        assert band.evidence_caption[0].endswith("at 98.3% joint confidence.")
+        (conflict,) = prepare_feasibility_data(mock_feasibility_conflict)
+        assert conflict.caption[0].endswith("at most 1.7%.")
 
     def test_conflict(self, mock_feasibility_conflict):
         (band,) = prepare_feasibility_data(mock_feasibility_conflict)
