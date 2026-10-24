@@ -133,6 +133,7 @@ class MockEndpoint:
     value: float | None
     direction: Literal["lower", "upper"]
     state: str
+    quantity: str = "metric"
 
 
 @dataclass(frozen=True)
@@ -405,14 +406,23 @@ def mock_dataset() -> MockDataset:
     )
 
 
-def _target_spec(threshold: float, scope: str, metric: str, class_name: str | None, aggregation: str | None) -> str:
+def _target_spec(
+    threshold: float,
+    scope: str,
+    metric: str,
+    class_name: str | None,
+    aggregation: str | None,
+    max_false_positive_rate: float | None = None,
+) -> str:
     """Canonical target JSON as DataEval writes it: sorted keys, nulls kept, versioned."""
     spec = {
         "aggregation": aggregation,
         "ap_functional": "population_ap_integral" if metric == "ap" else None,
         "class_name": class_name,
+        "false_positive_scope": "pooled" if metric == "recall" else None,
         "fp_budget": None,
         "iou": None,
+        "max_false_positive_rate": max_false_positive_rate,
         "metric": metric,
         "scope": scope,
         "task": "IC",
@@ -431,6 +441,7 @@ def _target(
     metric: str = "accuracy",
     class_name: str | None = None,
     aggregation: str | None = None,
+    max_false_positive_rate: float | None = None,
 ) -> dict[str, Any]:
     return {
         "threshold": threshold,
@@ -439,7 +450,7 @@ def _target(
         "witness": witness,
         "ceiling": ceiling,
         "metric": metric,
-        "spec": (class_name, aggregation),
+        "spec": (class_name, aggregation, max_false_positive_rate),
     }
 
 
@@ -461,7 +472,9 @@ def _source(
     bound_type: str = "lower",
     n: int | None = 5000,
     unit: str = "item",
+    false_positives: tuple[float, float, int] | None = None,
 ) -> dict[str, Any]:
+    """A source's bound; ``false_positives`` is a recall witness's (upper bound, observed rate, negatives)."""
     evidence_id, kind = _SOURCE_IDS.get(source, (source, source))
     return {
         "evidence_id": evidence_id,
@@ -472,11 +485,12 @@ def _source(
         "observed": observed,
         "bound": bound,
         "n": n,
+        "false_positives": false_positives,
     }
 
 
 # Enum dtypes where DataEval's FeasibilityOutput uses them, with its categories
-_METRIC = pl.Enum(["accuracy", "ap", "recall_at_fp", "mota"])
+_METRIC = pl.Enum(["accuracy", "ap", "recall", "recall_at_fp", "mota"])
 _SCOPE = pl.Enum(["full_input", "fixed_representation", "partition_restricted"])
 _DETERMINATION = pl.Enum(
     [
@@ -526,12 +540,23 @@ def _feasibility(targets: list[dict[str, Any]], sources: list[dict[str, Any]]) -
             endpoints=tuple(
                 MockEndpoint(spec, s["bound"], s["bound_type"], "unavailable" if s["bound"] is None else "informative")
                 for spec in specs
+            )
+            + tuple(
+                MockEndpoint(spec, s["false_positives"][0], "upper", "informative", "false_positive_rate")
+                for spec in specs
+                if s["false_positives"]
             ),
             details={
                 "endpoints": {
                     spec: dict.fromkeys(("variance", "support", "delta", "method"))
                     | {"mean": s["observed"], "n": s["n"]}
                     for spec in specs
+                }
+                | {
+                    f"{spec}#false_positive_rate": dict.fromkeys(("variance", "support", "delta", "method"))
+                    | {"mean": s["false_positives"][1], "n": s["false_positives"][2]}
+                    for spec in specs
+                    if s["false_positives"]
                 }
             },
         )
@@ -631,4 +656,34 @@ def mock_feasibility_per_class_ap() -> MockPlottableFeasibility:
             _target(0.9, "unresolved", witness=0.84, metric="ap", class_name="dog"),
         ],
         [_source("built-in k-NN", 0.84, scope="fixed_representation")],
+    )
+
+
+@pytest.fixture
+def mock_feasibility_recall() -> MockPlottableFeasibility:
+    """Tank recall of 60% at most 5% false positives: one certified witness, one over the limit, a ceiling."""
+    return _feasibility(
+        [
+            _target(
+                0.6,
+                "demonstrated_feasible",
+                witness=0.621,
+                ceiling=0.85,
+                metric="recall",
+                class_name="Tank",
+                max_false_positive_rate=0.05,
+            )
+        ],
+        [
+            _source("your model", 0.621, observed=0.70, n=160, false_positives=(0.041, 0.026, 651)),
+            _source(
+                "built-in k-NN",
+                0.66,
+                observed=0.72,
+                scope="fixed_representation",
+                n=160,
+                false_positives=(0.083, 0.07, 651),
+            ),
+            _source("repeated labels", 0.85, bound_type="upper", n=160),
+        ],
     )

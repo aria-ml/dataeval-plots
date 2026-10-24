@@ -697,6 +697,7 @@ _RULED_OUT = "ruled out*"
 _AGGREGATION_WORDS = {None: "", "sequence_mean": "per-sequence mean ", "frame_pooled": "frame-pooled "}
 _GROUP_CEILING = "group-based ceiling"
 _NO_BOUND = "no bound available"
+_FALSE_POSITIVE = "false_positive_rate"
 
 
 def _pct(value: float, direction: str | None = None) -> str:
@@ -710,6 +711,11 @@ def _pct(value: float, direction: str | None = None) -> str:
     tenths = value * 1000  # the 1e-9 absorbs float error only, such as 0.957 * 1000 = 956.9999999999999
     tenths = math.floor(tenths + 1e-9) if direction == "lower" else math.ceil(tenths - 1e-9)
     return f"{tenths / 10:.1f}%"
+
+
+def _confidence(value: float, direction: str) -> str:
+    """Round a confidence down or an error share up to 0.1%, dropping a trailing ".0", as the printout does."""
+    return _pct(value, direction).replace(".0%", "%")
 
 
 def _percent(value: float) -> str:
@@ -769,6 +775,16 @@ def _feasibility_range(values: Iterable[float]) -> tuple[float, float]:
     return round(max(low, 0.0), 2), 1.0
 
 
+def _not_counted(e: dict[str, Any]) -> str:
+    """The label suffix of a recall witness that does not count: its false-positive bound is over the limit or none."""
+    if not e["uncertified"]:
+        return ""
+    fp = e["false_positive_bound"]
+    seen = "no false-positive bound" if fp is None else f"false positives ≤{_pct(fp, 'upper')}"
+    limit = "" if fp is None else f" (limit {_percent(e['false_positive_limit'])})"
+    return f" · not counted: {seen}{limit}"
+
+
 def _feasibility_evidence(
     evidence: list[dict[str, Any]], scope: str, unit: str
 ) -> tuple[list[FeasibilityEvidenceRow], list[str]]:
@@ -802,10 +818,10 @@ def _feasibility_evidence(
                 observed=observed,
                 restricted=restricted,
                 label=label,
-                bound_label=_NO_BOUND if bound is None else f"{_pct(bound, kind)} {kind} bound",
+                bound_label=_NO_BOUND if bound is None else f"{_pct(bound, kind)} {kind} bound" + _not_counted(e),
                 observed_label=None if observed is None else f"{_pct(observed)} observed",
                 bound_left=kind == "lower",
-                faint=restricted or bound is None,
+                faint=restricted or bound is None or e["uncertified"],
             )
         )
         if restricted and kind == "upper" and bound is not None:
@@ -849,18 +865,29 @@ def _unit(rows: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> str | N
     return None
 
 
+def _other(fp: dict[str, Any]) -> str:
+    """The audit negatives a false-positive bound was measured on, such as ``651 other images``."""
+    return ("" if fp["n"] is None else f"{fp['n']:,} ") + f"other {fp['unit']}s"
+
+
 def _feasibility_title(spec: dict[str, Any]) -> str:
     """The axis title, naming the AP class (or macro) and any aggregation so per-class bands differ."""
     metric = spec["metric"]
     if metric == "ap":
         metric = "macro AP" if spec.get("class_name") is None else f"AP for class {spec['class_name']}"
+    elif metric == "recall":
+        f0 = _percent(spec["max_false_positive_rate"])
+        metric = f"recall for {spec['class_name']} (at most {f0} false positives)"
     return "Required " + _AGGREGATION_WORDS[spec.get("aggregation")] + metric
 
 
 def _feasibility_band(
-    rows: list[dict[str, Any]], evidence: list[dict[str, Any]], alpha: float, noun: str
+    rows: list[dict[str, Any]], all_evidence: list[dict[str, Any]], alpha: float, noun: str
 ) -> FeasibilityBand:
     """One band; ``noun`` is the unit the printout's footer names for the whole call."""
+    # Bands and evidence rows draw the metric; a recall witness's false-positive bound only joins the caption
+    evidence = [e for e in all_evidence if e["quantity"] == "metric"]
+    false_positives = [e for e in all_evidence if e["quantity"] == _FALSE_POSITIVE]
     scope = rows[0]["judged_scope"]
     unit = _unit(rows, evidence) or "image"
     # A lower bound of 0% demonstrates nothing and an upper bound of 100% rules nothing out
@@ -887,7 +914,7 @@ def _feasibility_band(
 
     conflict_caption = (
         f"Bounds disagree: check the assumptions, such as evaluation {unit}s entering training. "
-        f"Even when they hold, the chance that any bound fails is at most {_percent(alpha)}."
+        f"Even when they hold, the chance that any bound fails is at most {_confidence(alpha, 'upper')}."
     )
     if conflict:
         caption = [conflict_caption]
@@ -896,25 +923,38 @@ def _feasibility_band(
         witness = None if best is None else _deciding(best, evidence)[0]
         if witness and witness["observed"] is not None and w is not None:
             on = "the " if witness["n"] is None else f"{witness['n']:,} "
+            # A recall witness's count is the class's positives, which the printout names by class
+            spec = json.loads(rows[0]["target_spec"])
+            scored = f"{_pct(witness['observed'])} on {on}evaluation {unit}s"
+            if spec["metric"] == "recall":
+                scored = f"{_pct(witness['observed'])} recall on {on}{spec['class_name']} {unit}s"
             caption.append(
-                f"{_sentence_case(witness['source'])} scored {_pct(witness['observed'])} on {on}evaluation "
-                f"{unit}s; given sampling uncertainty, its lower confidence bound is {_pct(w, 'lower')}."
+                f"{_sentence_case(witness['source'])} scored {scored}; given sampling uncertainty, its lower "
+                f"confidence bound is {_pct(w, 'lower')}."
             )
-        caption.append(
-            f"Bounds apply to new {noun}s from the same population, at {_percent(1 - alpha)} joint confidence."
-        )
+        fp = None
+        if witness and w is not None:
+            fp = next(
+                (
+                    e
+                    for e in false_positives
+                    if e["evidence_id"] == witness["evidence_id"]
+                    and e["target_spec"] == witness["target_spec"]
+                    and e["bound"] is not None
+                ),
+                None,
+            )
+        if fp is not None:
+            seen = "" if fp["observed"] is None else f" (observed {_pct(fp['observed'])} of {_other(fp)})"
+            caption.append(f"Its upper confidence bound on false positives is {_pct(fp['bound'], 'upper')}{seen}.")
+        joint = _confidence(1 - alpha, "lower")
+        caption.append(f"Bounds apply to new {noun}s from the same population, at {joint} joint confidence.")
         # The "*" footnote to every "ruled out*" goes last, as a footnote does
         if deciding is not None and c is not None:
-            ceiling = _deciding(deciding, evidence)[1]
-            sign_off = ceiling is not None and ceiling["source"] == _GROUP_CEILING
-            caption.append(
-                "* Ruled out under the recorded assumptions, at the stated confidence"
-                + (" (group-based ceiling; validity pending lead-scientist sign-off)" if sign_off else "")
-                + "."
-            )
+            caption.append("* Ruled out under the recorded assumptions, at the stated confidence.")
     evidence_caption = [
         f"Observed on the evaluation {unit}s; bounds apply to new {unit}s from the same population, "
-        f"at {_percent(1 - alpha)} joint confidence."
+        f"at {_confidence(1 - alpha, 'lower')} joint confidence."
     ]
     if conflict:
         evidence_caption.append(conflict_caption)
@@ -962,6 +1002,10 @@ _EVIDENCE_SCHEMA = {
     "bound": pl.Float64,
     "n": pl.Int64,
     "state": pl.String,
+    "quantity": pl.String,
+    "uncertified": pl.Boolean,
+    "false_positive_bound": pl.Float64,
+    "false_positive_limit": pl.Float64,
 }
 
 
@@ -971,10 +1015,14 @@ def _evidence_rows(output: PlottableFeasibility) -> pl.DataFrame:
     rows = []
     for spec, target in targets.items():
         for eid, ev in output.evidence.items():
-            for e in ev.endpoints:
-                if e.target_spec != spec:
-                    continue
-                stats = ev.details["endpoints"][spec] or {}
+            # An older DataEval has no quantity; its endpoints all bound the metric
+            mine = [(e, getattr(e, "quantity", "metric")) for e in ev.endpoints if e.target_spec == spec]
+            fp = next((e.value for e, q in mine if q == _FALSE_POSITIVE), None)
+            f0 = json.loads(spec).get("max_false_positive_rate")
+            for e, q in mine:
+                stats = ev.details["endpoints"].get(spec if q == "metric" else f"{spec}#{q}") or {}
+                # A recall witness counts only when its own false-positive upper bound is within the limit
+                uncertified = q == "metric" and e.direction == "lower" and f0 is not None and (fp is None or fp > f0)
                 rows.append(
                     {
                         "target_spec": spec,
@@ -988,10 +1036,14 @@ def _evidence_rows(output: PlottableFeasibility) -> pl.DataFrame:
                         "unit": "sequence" if ev.unit == "group" else "image",
                         "bound_type": e.direction,
                         # A ceiling's mean is panel agreement, not an observed score
-                        "observed": stats.get("mean") if e.direction == "lower" else None,
+                        "observed": stats.get("mean") if e.direction == "lower" or q == _FALSE_POSITIVE else None,
                         "bound": e.value,
                         "n": stats.get("n"),
                         "state": e.state,
+                        "quantity": q,
+                        "uncertified": uncertified,
+                        "false_positive_bound": fp,
+                        "false_positive_limit": f0,
                     }
                 )
     return pl.DataFrame(rows, schema=_EVIDENCE_SCHEMA)
@@ -1022,7 +1074,7 @@ def prepare_feasibility_data(output: PlottableFeasibility) -> list[FeasibilityBa
         groups.setdefault(json.dumps(spec, sort_keys=True), []).append(row)
     evidence = _evidence_rows(output).to_dicts()
     alpha = output.meta().state["alpha"]
-    noun = _unit(rows, evidence) or "image"  # the printout's footer noun, for the whole call
+    noun = _unit(rows, [e for e in evidence if e["quantity"] == "metric"]) or "image"  # the printout's footer noun
     bands = []
     for band in groups.values():
         specs = {r["target_spec"] for r in band}
