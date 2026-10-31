@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from dataeval_plots.protocols import (
         PlottableBalance,
         PlottableDiversity,
+        PlottableDrift,
         PlottableDriftMVDC,
         PlottableFeasibility,
     )
@@ -46,6 +47,10 @@ __all__ = [
     "prepare_diversity_data",
     "prepare_drift_data",
     "plot_drift_on_axis",
+    "CHUNKED_DRIFT_COLUMNS",
+    "ChunkedDriftData",
+    "prepare_chunked_drift",
+    "plot_chunked_drift_on_axis",
     "FEASIBILITY_COLORS",
     "FEASIBILITY_CONFLICT_TEXT",
     "FeasibilityBand",
@@ -496,6 +501,200 @@ def prepare_drift_data(
     driftx = np.where(drift_mask)[0]
 
     return resdf, trndf, tstdf, driftx, True
+
+
+CHUNKED_DRIFT_COLUMNS = ("index", "value", "lower_threshold", "upper_threshold", "drifted")
+
+
+@dataclass(frozen=True)
+class ChunkedDriftData:
+    """
+    The per-chunk results of a chunked drift detector, ready for plotting.
+
+    Attributes
+    ----------
+    frame : pl.DataFrame
+        One row per chunk with the columns ``index``, ``value``, ``lower_threshold``, ``upper_threshold``,
+        ``drifted`` and ``period``. The rows of the reference chunks come first, numbered from ``-n`` to ``-1``
+        so that the analysis chunks keep their own indexes, and have ``period`` set to ``"reference"``. The
+        analysis chunks have ``period`` set to ``"analysis"``.
+    metric_name : str
+        Name of the metric that ``value`` reports
+    chunk_label : str
+        Label for the axis of chunks, which includes the size of a chunk when every analysis chunk has the same size
+    """
+
+    frame: pl.DataFrame
+    metric_name: str
+    chunk_label: str
+
+    @property
+    def reference(self) -> pl.DataFrame:
+        """The rows of the reference chunks, which is empty when the output carries no baseline."""
+        return self.frame.filter(pl.col("period") == "reference")
+
+    @property
+    def analysis(self) -> pl.DataFrame:
+        """The rows of the analysis chunks."""
+        return self.frame.filter(pl.col("period") == "analysis")
+
+
+def prepare_chunked_drift(output: PlottableDrift) -> ChunkedDriftData:
+    """
+    Read the per-chunk table, the reference chunks and the metric name from a chunked drift output.
+
+    The reference chunks are the optional ``baseline`` attribute of the output, which holds the metric of each
+    reference chunk. An output without it, such as one from an earlier version of DataEval, has no reference rows
+    and the plot leaves them out.
+
+    Parameters
+    ----------
+    output : PlottableDrift
+        The drift output object to plot
+
+    Returns
+    -------
+    ChunkedDriftData
+        The per-chunk results. A threshold that is missing, as for a one-sided detector, is replaced by a bound just
+        beyond the data, so that the range of no drift has no limit on that side.
+
+    Raises
+    ------
+    ValueError
+        If the output holds the statistics of a single test and not a per-chunk table, or if the table lacks a column
+        that the plot needs
+    """
+    details = output.details
+    if not isinstance(details, pl.DataFrame):
+        raise ValueError("Plotting drift needs chunked results. Call .chunked() on the detector before predict().")
+    missing = [name for name in CHUNKED_DRIFT_COLUMNS if name not in details.columns]
+    if missing:
+        raise ValueError(f"The per-chunk drift results lack the columns {missing}.")
+
+    analysis = details.select(
+        pl.col("index").cast(pl.Int64),
+        pl.col("value", "lower_threshold", "upper_threshold").cast(pl.Float64),
+        pl.col("drifted").cast(pl.Boolean),
+        pl.lit("analysis").alias("period"),
+    )
+
+    # The thresholds come from the reference chunks, so the band spans them too
+    baseline = np.asarray(getattr(output, "baseline", None) or (), dtype=np.float64)
+    if len(baseline) and len(analysis):
+        reference = pl.DataFrame(
+            {
+                "index": np.arange(-len(baseline), 0, dtype=np.int64),
+                "value": baseline,
+                "lower_threshold": [analysis["lower_threshold"][0]] * len(baseline),
+                "upper_threshold": [analysis["upper_threshold"][0]] * len(baseline),
+                "drifted": [False] * len(baseline),
+                "period": ["reference"] * len(baseline),
+            },
+            schema=analysis.schema,
+        )
+        frame = pl.concat([reference, analysis])
+    else:
+        frame = analysis
+
+    if frame["lower_threshold"].null_count() or frame["upper_threshold"].null_count():
+        extent = pl.concat([frame["value"], frame["lower_threshold"], frame["upper_threshold"]]).drop_nulls()
+        low, high = extent.min(), extent.max()
+        pad = 0.1 * (high - low) if low != high else 1.0  # type: ignore[operator]
+        frame = frame.with_columns(
+            pl.col("lower_threshold").fill_null(low - pad),  # type: ignore[operator]
+            pl.col("upper_threshold").fill_null(high + pad),  # type: ignore[operator]
+        )
+
+    return ChunkedDriftData(frame, output.metric_name, _chunk_label(details))
+
+
+def _chunk_label(details: pl.DataFrame) -> str:
+    """Label the axis of chunks with the size of a chunk, when every chunk has the same size."""
+    if "start_index" in details.columns and "end_index" in details.columns and len(details):
+        sizes = (details["end_index"] - details["start_index"] + 1).unique()
+        if len(sizes) == 1 and (details["start_index"] >= 0).all():
+            return f"Chunk ({sizes[0]} samples each)"
+    return "Chunk"
+
+
+def plot_chunked_drift_on_axis(
+    ax: Any,
+    data: ChunkedDriftData,
+    line_color: Any = "tab:blue",
+    band_color: Any = "tab:green",
+    drift_color: Any = "tab:red",
+    reference_color: Any = "tab:gray",
+    linewidth: float = 1.5,
+) -> None:
+    """
+    Plot the metric of each chunk against the threshold range of the detector on a matplotlib axis.
+
+    This is a shared helper for the matplotlib and seaborn backends. The metric is a line with a marker per chunk,
+    the band is the range between the lower and upper thresholds in which a chunk counts as no drift, and a diamond
+    marks each chunk that the detector flagged. When the output carries the metric of the reference chunks, they are
+    drawn in a second color to the left of the analysis chunks, with a dotted line between them.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axis to plot on
+    data : ChunkedDriftData
+        Per-chunk results from :func:`prepare_chunked_drift`
+    line_color : Any, default "tab:blue"
+        Color of the metric line of the analysis chunks
+    band_color : Any, default "tab:green"
+        Color of the band between the thresholds
+    drift_color : Any, default "tab:red"
+        Color of the markers on the chunks with drift
+    reference_color : Any, default "tab:gray"
+        Color of the metric line of the reference chunks and of the line that separates them
+    linewidth : float, default 1.5
+        Width of the metric lines
+    """
+    from matplotlib.ticker import MaxNLocator
+
+    frame, reference, analysis = data.frame, data.reference, data.analysis
+    ax.fill_between(
+        frame["index"].to_numpy(),
+        frame["lower_threshold"].to_numpy(),
+        frame["upper_threshold"].to_numpy(),
+        step="mid",
+        color=band_color,
+        alpha=0.15,
+        label="No-drift range",
+    )
+    if len(reference):
+        ax.plot(
+            reference["index"].to_numpy(),
+            reference["value"].to_numpy(),
+            marker="o",
+            color=reference_color,
+            linewidth=linewidth,
+            label="Reference chunks",
+        )
+        ax.axvline(-0.5, color=reference_color, linestyle=":", linewidth=1)
+    ax.plot(
+        analysis["index"].to_numpy(),
+        analysis["value"].to_numpy(),
+        marker="o",
+        color=line_color,
+        linewidth=linewidth,
+        label="Analysis chunks",
+    )
+    drifted = analysis.filter(pl.col("drifted"))
+    if len(drifted):
+        ax.scatter(
+            drifted["index"].to_numpy(),
+            drifted["value"].to_numpy(),
+            marker="D",
+            color=drift_color,
+            zorder=3,
+            label="Drift",
+        )
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.set_xlabel(data.chunk_label)
+    ax.set_ylabel(data.metric_name)
+    ax.legend(loc="best")
 
 
 def plot_drift_on_axis(

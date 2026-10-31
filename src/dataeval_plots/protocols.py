@@ -12,6 +12,7 @@ The protocol hierarchy:
   - PlottableSufficiency
   - PlottableStats
   - PlottableDriftMVDC
+  - PlottableDrift
   - PlottableFeasibility
 """
 
@@ -122,13 +123,15 @@ class Plottable(Protocol):
     """
 
     @property
-    def plot_type(self) -> Literal["balance", "diversity", "sufficiency", "stats", "drift_mvdc", "feasibility"]:
+    def plot_type(
+        self,
+    ) -> Literal["balance", "diversity", "sufficiency", "stats", "drift_mvdc", "drift", "feasibility"]:
         """Return the plot type identifier for routing to appropriate plot function.
 
         Returns
         -------
         str
-            One of: 'balance', 'diversity', 'sufficiency', 'stats', 'drift_mvdc', 'feasibility'
+            One of: 'balance', 'diversity', 'sufficiency', 'stats', 'drift_mvdc', 'drift', 'feasibility'
         """
         ...
 
@@ -289,6 +292,38 @@ class PlottableDriftMVDC(Plottable, Protocol):
     def plot_type(self) -> Literal["drift_mvdc"]: ...
 
 
+@runtime_checkable
+class PlottableDrift(Plottable, Protocol):
+    """Protocol for chunked drift detector outputs.
+
+    Required attributes:
+    - details: Per-chunk results as a polars DataFrame
+    - metric_name: Name of the drift metric that each chunk reports
+    - plot_type -> 'drift'
+    """
+
+    @property
+    def details(self) -> Any:
+        """Per-chunk drift results.
+
+        Returns
+        -------
+        pl.DataFrame
+            One row per chunk with the columns ``index``, ``value``, ``lower_threshold``, ``upper_threshold`` and
+            ``drifted``. A detector that was not chunked holds a mapping of statistics instead, which cannot be
+            plotted.
+        """
+        ...
+
+    @property
+    def metric_name(self) -> str:
+        """Name of the metric that ``value`` reports, such as ``auroc`` or ``mmd2``."""
+        ...
+
+    @property
+    def plot_type(self) -> Literal["drift"]: ...
+
+
 class FeasibilityEndpoint(Protocol):
     """
     One bound on one target, as DataEval's ``Endpoint`` records it; only the fields the plot reads.
@@ -355,5 +390,6 @@ PlottableType = (
     | PlottableSufficiency
     | PlottableStats
     | PlottableDriftMVDC
+    | PlottableDrift
     | PlottableFeasibility
 )

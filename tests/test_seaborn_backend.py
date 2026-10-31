@@ -49,6 +49,15 @@ class TestSeabornBackend(BackendTestBase):
         # Empty figures still have axes in matplotlib
         assert len(result.axes) >= 0
 
+    def validate_drift_result(self, result: Any) -> None:
+        """Validate the result from plotting chunked drift."""
+        assert isinstance(result, Figure)
+        (ax,) = result.axes
+        assert ax.get_xlabel() == "Chunk (50 samples each)"
+        assert ax.get_ylabel() == "auroc"
+        assert ax.get_legend_handles_labels()[1] == ["No-drift range", "Reference chunks", "Analysis chunks", "Drift"]
+        assert len(ax.collections[-1].get_offsets()) == 2  # the two flagged chunks
+
     def validate_drift_mvdc_result(self, result: Any) -> None:
         """Validate the result from plotting drift MVDC."""
         assert isinstance(result, Figure)

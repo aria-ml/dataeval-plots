@@ -14,6 +14,7 @@ from dataeval_plots.protocols import (
     Dataset,
     PlottableBalance,
     PlottableDiversity,
+    PlottableDrift,
     PlottableDriftMVDC,
     PlottableFeasibility,
     PlottableStats,
@@ -77,6 +78,14 @@ class PlottingBackend(Protocol):
     def plot(
         self,
         output: PlottableDriftMVDC,
+        *,
+        figsize: tuple[float, float] | None = None,
+    ) -> Any: ...
+
+    @overload
+    def plot(
+        self,
+        output: PlottableDrift,
         *,
         figsize: tuple[float, float] | None = None,
     ) -> Any: ...
@@ -245,6 +254,8 @@ class BasePlottingBackend(PlottingBackend, ABC):
             return self._plot_sufficiency(cast(PlottableSufficiency, output), figsize=figsize, **kwargs)
         if plot_type == "drift_mvdc":
             return self._plot_drift_mvdc(cast(PlottableDriftMVDC, output), figsize=figsize, **kwargs)
+        if plot_type == "drift":
+            return self._plot_drift(cast(PlottableDrift, output), figsize=figsize, **kwargs)
         if plot_type == "stats":
             return self._plot_stats(cast(PlottableStats, output), figsize=figsize, **kwargs)
         if plot_type == "feasibility":
@@ -308,6 +319,15 @@ class BasePlottingBackend(PlottingBackend, ABC):
         figsize: tuple[float, float] | None = None,
     ) -> Any:
         """Plot drift MVDC output."""
+        ...
+
+    @abstractmethod
+    def _plot_drift(
+        self,
+        output: PlottableDrift,
+        figsize: tuple[float, float] | None = None,
+    ) -> Any:
+        """Plot the per-chunk results of a chunked drift detector."""
         ...
 
     @abstractmethod

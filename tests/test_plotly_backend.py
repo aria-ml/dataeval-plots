@@ -45,6 +45,21 @@ class TestPlotlyBackend(BackendTestBase):
         assert isinstance(result, go.Figure)
         # Empty figures may have 0 data traces
 
+    def validate_drift_result(self, result: Any) -> None:
+        """Validate the result from plotting chunked drift."""
+        assert isinstance(result, go.Figure)
+        assert [trace.name for trace in result.data] == [
+            None,
+            "No-drift range",
+            "Reference chunks",
+            "Analysis chunks",
+            "Drift",
+        ]
+        assert list(result.data[2].x) == [-5, -4, -3, -2, -1]  # the reference chunks come before chunk 0
+        assert list(result.data[-1].x) == [3, 4]  # the two flagged chunks
+        assert result.layout.xaxis.title.text == "Chunk (50 samples each)"
+        assert result.layout.yaxis.title.text == "auroc"
+
     def validate_drift_mvdc_result(self, result: Any) -> None:
         """Validate the result from plotting drift MVDC."""
         assert isinstance(result, go.Figure)

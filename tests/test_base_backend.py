@@ -9,6 +9,7 @@ from dataeval_plots.protocols import (
     Dataset,
     PlottableBalance,
     PlottableDiversity,
+    PlottableDrift,
     PlottableDriftMVDC,
     PlottableFeasibility,
     PlottableStats,
@@ -57,6 +58,12 @@ class MockBackend(BasePlottingBackend):
     def _plot_drift_mvdc(
         self,
         output: PlottableDriftMVDC,
+    ) -> None:
+        pass
+
+    def _plot_drift(
+        self,
+        output: PlottableDrift,
     ) -> None:
         pass
 

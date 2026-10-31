@@ -12,6 +12,7 @@ from conftest import (
     MockDataset,
     MockPlottableBalance,
     MockPlottableDiversity,
+    MockPlottableDrift,
     MockPlottableDriftMVDC,
     MockPlottableFeasibility,
     MockPlottableStats,
@@ -76,6 +77,14 @@ class BackendTestBase(ABC):
     @abstractmethod
     def validate_stats_result(self, result: Any) -> None:
         """Validate the result from plotting stats.
+
+        Should check that result is of the correct type for this backend.
+        """
+        pass
+
+    @abstractmethod
+    def validate_drift_result(self, result: Any) -> None:
+        """Validate the result from plotting chunked drift, which has two flagged chunks.
 
         Should check that result is of the correct type for this backend.
         """
@@ -266,6 +275,20 @@ class BackendTestBase(ABC):
 
         result = backend.plot(mock_empty)
         self.validate_stats_result(result)
+
+    def test_plot_drift(
+        self,
+        backend: BasePlottingBackend,
+        mock_drift: MockPlottableDrift,
+    ) -> None:
+        """Test plotting chunked drift output."""
+        result = backend.plot(mock_drift)
+        self.validate_drift_result(result)
+
+    def test_plot_drift_requires_chunked_results(self, backend: BasePlottingBackend) -> None:
+        """A drift output that was not chunked holds statistics and not a per-chunk table."""
+        with pytest.raises(ValueError, match="chunked"):
+            backend.plot(MockPlottableDrift(details={"p_val": 0.5}))
 
     def test_plot_drift_mvdc(
         self,

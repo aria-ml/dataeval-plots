@@ -19,6 +19,7 @@ from dataeval_plots.protocols import (
     Dataset,
     PlottableBalance,
     PlottableDiversity,
+    PlottableDrift,
     PlottableDriftMVDC,
     PlottableFeasibility,
     PlottableStats,
@@ -92,6 +93,15 @@ def plot(
 @overload
 def plot(
     output: PlottableDriftMVDC,
+    /,
+    figsize: tuple[float, float] | None = None,
+    backend: str | None = None,
+) -> Any: ...
+
+
+@overload
+def plot(
+    output: PlottableDrift,
     /,
     figsize: tuple[float, float] | None = None,
     backend: str | None = None,

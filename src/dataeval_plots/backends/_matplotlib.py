@@ -21,8 +21,10 @@ from dataeval_plots.backends._shared import (
     calculate_subplot_grid,
     feasibility_zones,
     normalize_reference_outputs,
+    plot_chunked_drift_on_axis,
     plot_drift_on_axis,
     prepare_balance_data,
+    prepare_chunked_drift,
     prepare_diversity_data,
     prepare_drift_data,
     prepare_feasibility_data,
@@ -32,6 +34,7 @@ from dataeval_plots.backends._shared import (
 from dataeval_plots.protocols import (
     PlottableBalance,
     PlottableDiversity,
+    PlottableDrift,
     PlottableDriftMVDC,
     PlottableFeasibility,
     PlottableStats,
@@ -831,6 +834,35 @@ class MatplotlibBackend(BasePlottingBackend):
                 tick_fontsize=6,
                 legend_fontsize=6,
             )
+        return fig
+
+    def _plot_drift(
+        self,
+        output: PlottableDrift,
+        figsize: tuple[float, float] | None = None,
+    ) -> Figure:
+        """
+        Render the metric of each chunk in relation to the thresholds of the detector.
+
+        Parameters
+        ----------
+        output : PlottableDrift
+            The chunked drift output object to plot
+        figsize : tuple[float, float] or None, default None
+            Figure size in inches (width, height). If None, defaults to (8, 3.5).
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import matplotlib.pyplot as plt
+
+        data = prepare_chunked_drift(output)
+
+        fig, ax = plt.subplots(figsize=figsize or (8, 3.5))
+        plot_chunked_drift_on_axis(ax, data)
+        ax.set_title("Drift by chunk")
+        fig.tight_layout()
         return fig
 
     def _plot_feasibility(

@@ -10,14 +10,17 @@ from numpy.typing import NDArray
 from dataeval_plots.backends._base import BasePlottingBackend
 from dataeval_plots.backends._shared import (
     CHANNELWISE_METRICS,
+    plot_chunked_drift_on_axis,
     plot_drift_on_axis,
     prepare_balance_data,
+    prepare_chunked_drift,
     prepare_diversity_data,
     prepare_drift_data,
 )
 from dataeval_plots.protocols import (
     PlottableBalance,
     PlottableDiversity,
+    PlottableDrift,
     PlottableDriftMVDC,
     PlottableFeasibility,
     PlottableStats,
@@ -490,6 +493,47 @@ class SeabornBackend(BasePlottingBackend):
             )
             sns.despine(ax=ax)
 
+        fig.tight_layout()
+        return fig
+
+    def _plot_drift(
+        self,
+        output: PlottableDrift,
+        figsize: tuple[float, float] | None = None,
+    ) -> Figure:
+        """
+        Render the metric of each chunk in relation to the thresholds of the detector.
+
+        Parameters
+        ----------
+        output : PlottableDrift
+            The chunked drift output object to plot
+        figsize : tuple[float, float] or None, default None
+            Figure size in inches (width, height). If None, defaults to (10, 4).
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        sns.set_style("whitegrid")
+        palette = sns.color_palette("deep")  # not the global palette, which a user can shorten
+
+        data = prepare_chunked_drift(output)
+
+        fig, ax = plt.subplots(figsize=figsize or (10, 4))
+        plot_chunked_drift_on_axis(
+            ax,
+            data,
+            line_color=palette[0],
+            band_color=palette[2],
+            drift_color=palette[3],
+            reference_color=palette[7],
+        )
+        ax.set_title("Drift by chunk")
+        sns.despine(ax=ax)
         fig.tight_layout()
         return fig
 

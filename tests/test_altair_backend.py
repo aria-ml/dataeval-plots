@@ -51,6 +51,11 @@ class TestAltairBackend(BackendTestBase):
         """Validate the result from plotting stats."""
         assert isinstance(result, alt.Chart | alt.HConcatChart)
 
+    def validate_drift_result(self, result: Any) -> None:
+        """Validate the result from plotting chunked drift."""
+        assert isinstance(result, alt.LayerChart)
+        assert len(result.layer) == 4  # the no-drift range, the metric, the reference divider and the flagged chunks
+
     def validate_drift_mvdc_result(self, result: Any) -> None:
         """Validate the result from plotting drift MVDC."""
         assert isinstance(result, alt.Chart | alt.LayerChart)

@@ -29,6 +29,7 @@ from dataeval_plots.backends._shared import (
     normalize_reference_outputs,
     parse_dataset_item,
     prepare_balance_data,
+    prepare_chunked_drift,
     prepare_diversity_data,
     prepare_drift_data,
     prepare_feasibility_data,
@@ -39,6 +40,7 @@ from dataeval_plots.protocols import (
     Dataset,
     PlottableBalance,
     PlottableDiversity,
+    PlottableDrift,
     PlottableDriftMVDC,
     PlottableFeasibility,
     PlottableStats,
@@ -817,6 +819,82 @@ class AltairBackend(BasePlottingBackend):
         # Combine all layers
         return (upper_line + lower_line + train_line + test_line + drift_points).properties(
             width=width, height=height, title="Domain Classifier, Drift Detection"
+        )
+
+    def _plot_drift(
+        self,
+        output: PlottableDrift,
+        figsize: tuple[float, float] | None = None,
+    ) -> Any:  # alt.LayerChart
+        """
+        Render the metric of each chunk in relation to the thresholds of the detector.
+
+        When the output carries the metric of the reference chunks, they are drawn in gray to the left of the
+        analysis chunks. The chunks are numbered from -n for the reference and from 0 for the analysis.
+
+        Parameters
+        ----------
+        output : PlottableDrift
+            The chunked drift output object to plot
+        figsize : tuple[float, float] or None, default None
+            Figure size in inches (width, height), drawn at 100 pixels per inch. If None, defaults to (6, 3).
+
+        Returns
+        -------
+        alt.LayerChart
+        """
+        import altair as alt
+        import pandas as pd
+
+        data = prepare_chunked_drift(output)
+        width_inches, height_inches = figsize or (6, 3)
+
+        # Convert via dict to avoid pyarrow dependency
+        plot_df = pd.DataFrame(
+            data.frame.with_columns(
+                pl.when(pl.col("period") == "reference")
+                .then(pl.lit("Reference chunks"))
+                .otherwise(pl.lit("Analysis chunks"))
+                .alias("period")
+            ).to_dict(as_series=False)
+        )
+
+        x = alt.X("index:Q", title=data.chunk_label, axis=alt.Axis(tickMinStep=1))
+        scale = alt.Scale(zero=False)
+        y = alt.Y("value:Q", title=data.metric_name, scale=scale)
+        tooltip = ["index:Q", alt.Tooltip("value:Q", title=data.metric_name, format=".4f")]
+
+        # The no-drift range is the band between the two thresholds
+        layers = [
+            alt.Chart(plot_df)
+            .mark_area(color="green", opacity=0.15, interpolate="step")
+            .encode(x=x, y=alt.Y("lower_threshold:Q", title=data.metric_name, scale=scale), y2="upper_threshold:Q")
+        ]
+
+        # The metric of each chunk, with the reference chunks in gray
+        has_reference = bool((plot_df["period"] == "Reference chunks").any())
+        color = alt.Color(
+            "period:N",
+            scale=alt.Scale(domain=["Reference chunks", "Analysis chunks"], range=["gray", "royalblue"]),
+            legend=alt.Legend(title=None),
+        )
+        layers.append(alt.Chart(plot_df).mark_line(point=True).encode(x=x, y=y, color=color, tooltip=tooltip))
+        if has_reference:
+            layers.append(
+                alt.Chart(pd.DataFrame({"index": [-0.5]}))
+                .mark_rule(color="gray", strokeDash=[2, 2])
+                .encode(x="index:Q")
+            )
+
+        # The chunks that the detector flagged
+        layers.append(
+            alt.Chart(plot_df[plot_df["drifted"]])  # type: ignore[arg-type]
+            .mark_point(shape="diamond", size=120, color="crimson", filled=True)
+            .encode(x=x, y=y, tooltip=tooltip)
+        )
+
+        return alt.layer(*layers).properties(
+            width=int(width_inches * 100), height=int(height_inches * 100), title="Drift by chunk"
         )
 
     def _plot_image_grid(

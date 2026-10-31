@@ -22,6 +22,7 @@ from dataeval_plots.backends._shared import (
     feasibility_zones,
     format_label_from_target,
     prepare_balance_data,
+    prepare_chunked_drift,
     prepare_diversity_data,
     prepare_drift_data,
     prepare_feasibility_data,
@@ -33,6 +34,7 @@ from dataeval_plots.protocols import (
     Dataset,
     PlottableBalance,
     PlottableDiversity,
+    PlottableDrift,
     PlottableDriftMVDC,
     PlottableFeasibility,
     PlottableStats,
@@ -844,6 +846,113 @@ class PlotlyBackend(BasePlottingBackend):
             yaxis={"range": [0, 1.1]},
             width=width,
             height=height,
+            hovermode="closest",
+        )
+
+        return fig
+
+    def _plot_drift(
+        self,
+        output: PlottableDrift,
+        figsize: tuple[float, float] | None = None,
+    ) -> Any:  # go.Figure
+        """
+        Render the metric of each chunk in relation to the thresholds of the detector.
+
+        When the output carries the metric of the reference chunks, they are drawn in gray to the left of the
+        analysis chunks. The chunks are numbered from -n for the reference and from 0 for the analysis.
+
+        Parameters
+        ----------
+        output : PlottableDrift
+            The chunked drift output object to plot
+        figsize : tuple[float, float] or None, default None
+            Figure size in inches (width, height), drawn at 100 pixels per inch. If None, defaults to (8, 3.5).
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+        """
+        import plotly.graph_objects as go
+
+        data = prepare_chunked_drift(output)
+        frame, reference, analysis = data.frame, data.reference, data.analysis
+        drifted = analysis.filter(pl.col("drifted"))
+        hover = f"Chunk: %{{x}}<br>{data.metric_name}: %{{y:.4f}}<extra></extra>"
+
+        fig = go.Figure()
+
+        # The no-drift range is the band between the two thresholds
+        fig.add_trace(
+            go.Scatter(
+                x=frame["index"].to_numpy(),
+                y=frame["upper_threshold"].to_numpy(),
+                mode="lines",
+                line={"width": 0, "shape": "hvh"},
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=frame["index"].to_numpy(),
+                y=frame["lower_threshold"].to_numpy(),
+                mode="lines",
+                line={"width": 0, "shape": "hvh"},
+                fill="tonexty",
+                fillcolor="rgba(44, 160, 44, 0.15)",
+                name="No-drift range",
+                hoverinfo="skip",
+            )
+        )
+
+        # The reference chunks, which the thresholds derive from
+        if len(reference):
+            fig.add_trace(
+                go.Scatter(
+                    x=reference["index"].to_numpy(),
+                    y=reference["value"].to_numpy(),
+                    mode="lines+markers",
+                    name="Reference chunks",
+                    line={"color": "gray", "width": 2},
+                    hovertemplate=hover,
+                )
+            )
+            fig.add_vline(x=-0.5, line_dash="dot", line_color="gray", line_width=1)
+
+        # The metric of each analysis chunk
+        fig.add_trace(
+            go.Scatter(
+                x=analysis["index"].to_numpy(),
+                y=analysis["value"].to_numpy(),
+                mode="lines+markers",
+                name="Analysis chunks",
+                line={"color": "royalblue", "width": 2},
+                hovertemplate=hover,
+            )
+        )
+
+        # The chunks that the detector flagged
+        if len(drifted):
+            fig.add_trace(
+                go.Scatter(
+                    x=drifted["index"].to_numpy(),
+                    y=drifted["value"].to_numpy(),
+                    mode="markers",
+                    name="Drift",
+                    marker={"symbol": "diamond", "size": 11, "color": "crimson"},
+                    hovertemplate=hover,
+                )
+            )
+
+        width_inches, height_inches = figsize or (8, 3.5)
+        fig.update_layout(
+            title="Drift by chunk",
+            xaxis_title=data.chunk_label,
+            yaxis_title=data.metric_name,
+            xaxis={"dtick": 1} if len(frame) <= 20 else {},
+            width=int(width_inches * 100),
+            height=int(height_inches * 100),
             hovermode="closest",
         )
 

@@ -125,6 +125,56 @@ class MockPlottableDriftMVDC:
         return MockExecutionMetadata(arguments={})
 
 
+@dataclass
+class MockPlottableDrift:
+    """Mock chunked drift output for testing."""
+
+    details: Any  # polars.DataFrame for chunked results, a dict for a single test
+    metric_name: str = "auroc"
+    baseline: tuple[float, ...] = ()  # the metric of each reference chunk
+
+    @property
+    def plot_type(self) -> Literal["drift"]:
+        return "drift"
+
+    def meta(self) -> MockExecutionMetadata:
+        return MockExecutionMetadata(arguments={})
+
+
+@dataclass
+class MockDriftWithoutBaseline:
+    """Mock chunked drift output from a version of DataEval that has no ``baseline`` attribute."""
+
+    details: Any
+    metric_name: str = "auroc"
+
+    @property
+    def plot_type(self) -> Literal["drift"]:
+        return "drift"
+
+    def meta(self) -> MockExecutionMetadata:
+        return MockExecutionMetadata(arguments={})
+
+
+def make_chunked_drift(n_chunks: int = 5, n_alerts: int = 2, n_baseline: int = 5) -> MockPlottableDrift:
+    """Create a chunked drift output with ``n_baseline`` reference chunks and ``n_alerts`` flagged chunks at the end."""
+    drifted = [i >= n_chunks - n_alerts for i in range(n_chunks)]
+    details = pl.DataFrame(
+        {
+            "key": [f"[{50 * i}:{50 * i + 49}]" for i in range(n_chunks)],
+            "index": list(range(n_chunks)),
+            "start_index": [50 * i for i in range(n_chunks)],
+            "end_index": [50 * i + 49 for i in range(n_chunks)],
+            "value": [0.9 if flag else 0.5 for flag in drifted],
+            "upper_threshold": [0.65] * n_chunks,
+            "lower_threshold": [0.45] * n_chunks,
+            "drifted": drifted,
+        }
+    )
+    baseline = tuple(0.5 + 0.02 * (i % 3 - 1) for i in range(n_baseline))
+    return MockPlottableDrift(details=details, baseline=baseline)
+
+
 @dataclass(frozen=True)
 class MockEndpoint:
     """DataEval's Endpoint, with only the fields the plot reads."""
@@ -366,6 +416,12 @@ def mock_stats_multi_channel() -> MockPlottableStats:
         _n_channels=n_channels,
         _channel_mask=None,  # Let the function handle masking internally
     )
+
+
+@pytest.fixture
+def mock_drift() -> MockPlottableDrift:
+    """Create mock chunked drift output with two flagged chunks."""
+    return make_chunked_drift()
 
 
 @pytest.fixture

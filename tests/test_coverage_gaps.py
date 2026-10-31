@@ -29,9 +29,12 @@ import polars as pl
 import pytest
 from conftest import (
     MockDataset,
+    MockDriftWithoutBaseline,
+    MockPlottableDrift,
     MockPlottableDriftMVDC,
     MockPlottableStats,
     MockPlottableSufficiency,
+    make_chunked_drift,
 )
 from numpy.typing import NDArray
 from PIL import ImageFont
@@ -48,6 +51,7 @@ from dataeval_plots.backends._shared import (
     normalize_image_to_uint8,
     normalize_reference_outputs,
     parse_dataset_item,
+    prepare_chunked_drift,
     prepare_diversity_data,
     prepare_drift_data,
     reduce_embeddings,
@@ -306,6 +310,41 @@ class TestDriftGaps:
     def test_with_figsize(self, backend: Any) -> None:
         output = MockPlottableDriftMVDC(_df=_drift_df())
         result = backend.plot(output, figsize=(9, 5))
+        assert result is not None
+
+
+class TestChunkedDriftGaps:
+    def test_no_drift_detected(self, backend: Any) -> None:
+        result = backend.plot(make_chunked_drift(n_alerts=0))
+        assert result is not None
+
+    def test_every_chunk_flagged(self, backend: Any) -> None:
+        result = backend.plot(make_chunked_drift(n_chunks=3, n_alerts=3))
+        assert result is not None
+
+    def test_single_chunk(self, backend: Any) -> None:
+        result = backend.plot(make_chunked_drift(n_chunks=1, n_alerts=1))
+        assert result is not None
+
+    def test_with_figsize(self, backend: Any) -> None:
+        result = backend.plot(make_chunked_drift(), figsize=(9, 5))
+        assert result is not None
+
+    def test_without_reference_chunks(self, backend: Any) -> None:
+        result = backend.plot(make_chunked_drift(n_baseline=0))
+        assert result is not None
+
+    def test_output_without_a_baseline_attribute(self, backend: Any) -> None:
+        result = backend.plot(MockDriftWithoutBaseline(details=make_chunked_drift().details))
+        assert result is not None
+
+    @pytest.mark.parametrize(
+        "missing", [["upper_threshold"], ["lower_threshold"], ["lower_threshold", "upper_threshold"]]
+    )
+    def test_missing_thresholds(self, backend: Any, missing: list[str]) -> None:
+        output = make_chunked_drift()
+        output.details = output.details.with_columns(*(pl.lit(None).alias(name) for name in missing))
+        result = backend.plot(output)
         assert result is not None
 
 
@@ -574,6 +613,79 @@ class TestPrepareDriftDataGaps:
         output = MockPlottableDriftMVDC(_df=_drift_df(n_ref=1, n_test=1))
         resdf, _, _, _, is_sufficient = prepare_drift_data(output)
         assert is_sufficient is False
+
+
+class TestPrepareChunkedDrift:
+    def test_returns_analysis_rows_and_metric_name(self) -> None:
+        output = make_chunked_drift()
+        data = prepare_chunked_drift(output)
+        assert data.metric_name == "auroc"
+        assert data.analysis["index"].to_list() == [0, 1, 2, 3, 4]
+        assert data.analysis["value"].to_list() == output.details["value"].to_list()
+        assert data.analysis["drifted"].to_list() == output.details["drifted"].to_list()
+
+    def test_reference_rows_come_before_chunk_zero_and_share_its_thresholds(self) -> None:
+        output = make_chunked_drift()
+        data = prepare_chunked_drift(output)
+        assert data.reference["index"].to_list() == [-5, -4, -3, -2, -1]
+        assert data.reference["value"].to_list() == pytest.approx(list(output.baseline))
+        assert data.reference["lower_threshold"].to_list() == [0.45] * 5
+        assert data.reference["upper_threshold"].to_list() == [0.65] * 5
+        assert not data.reference["drifted"].any()
+        assert data.frame["index"].to_list() == list(range(-5, 5))
+
+    def test_no_reference_rows_without_a_baseline(self) -> None:
+        data = prepare_chunked_drift(make_chunked_drift(n_baseline=0))
+        assert data.reference.is_empty()
+        assert data.frame["index"].to_list() == [0, 1, 2, 3, 4]
+
+    def test_no_reference_rows_when_the_output_has_no_baseline_attribute(self) -> None:
+        output = MockDriftWithoutBaseline(details=make_chunked_drift().details)
+        data = prepare_chunked_drift(output)
+        assert data.reference.is_empty()
+        assert data.analysis.height == 5
+
+    def test_missing_threshold_has_no_limit_beyond_the_data(self) -> None:
+        output = make_chunked_drift()
+        output.details = output.details.with_columns(pl.lit(None, dtype=pl.Float64).alias("upper_threshold"))
+        frame = prepare_chunked_drift(output).frame
+        assert frame["upper_threshold"].null_count() == 0
+        assert (frame["upper_threshold"] > frame["value"].max()).all()  # also over the reference chunks
+        assert frame["lower_threshold"].to_list() == [0.45] * 10  # the bound that exists is kept
+
+    def test_chunk_label_gives_the_size_of_a_chunk(self) -> None:
+        assert prepare_chunked_drift(make_chunked_drift()).chunk_label == "Chunk (50 samples each)"
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            pl.when(pl.col("index") == 4)
+            .then(pl.col("end_index") - 10)
+            .otherwise(pl.col("end_index"))
+            .alias("end_index"),
+            pl.lit(-1).alias("start_index"),
+        ],
+        ids=["chunks of different sizes", "chunks without contiguous indexes"],
+    )
+    def test_chunk_label_is_plain_unless_every_chunk_has_one_size(self, change: pl.Expr) -> None:
+        output = make_chunked_drift()
+        output.details = output.details.with_columns(change)
+        assert prepare_chunked_drift(output).chunk_label == "Chunk"
+
+    def test_chunk_label_is_plain_without_the_sample_indexes(self) -> None:
+        output = make_chunked_drift()
+        output.details = output.details.drop("start_index", "end_index")
+        assert prepare_chunked_drift(output).chunk_label == "Chunk"
+
+    def test_rejects_results_that_were_not_chunked(self) -> None:
+        with pytest.raises(ValueError, match="Call .chunked()"):
+            prepare_chunked_drift(MockPlottableDrift(details={"p_val": 0.5}))
+
+    def test_rejects_a_table_without_the_needed_columns(self) -> None:
+        output = make_chunked_drift()
+        output.details = output.details.drop("lower_threshold", "drifted")
+        with pytest.raises(ValueError, match="lack the columns .*lower_threshold.*drifted"):
+            prepare_chunked_drift(output)
 
 
 class TestImageHelpers:
