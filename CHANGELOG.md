@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.16] - 2026-10-30
+
+- [feat] Plot the per-chunk results of a chunked drift detector with its reference chunks, no-drift range and flagged chunks
+
 ## [0.0.15] - 2026-10-24
 
 - [feat] Draw Feasibility recall requirements with each model's false-positive bound
