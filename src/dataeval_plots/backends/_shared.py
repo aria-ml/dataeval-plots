@@ -15,6 +15,8 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
+from dataeval_plots.protocols import PlottableFeasibilityDecisions
+
 if TYPE_CHECKING:
     from dataeval_plots.protocols import (
         PlottableBalance,
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
         PlottableDrift,
         PlottableDriftMVDC,
         PlottableFeasibility,
+        PlottableFeasibilityDeterminations,
     )
 
 MethodType = Literal[
@@ -1181,12 +1184,19 @@ def _feasibility_band(
     )
 
 
-# These mirror DataEval's performance/_feasibility.py: _SOURCES, _source_name, _unit_noun and FeasibilityOutput._bounds
+# The readable name of each source: by DataEval 1.2.0's evidence id (these mirror its performance/_feasibility.py:
+# _SOURCES, _source_name, _unit_noun and FeasibilityOutput._bounds), and by the `source` value of the decisions and
+# bounds shape. Any other value shows its own text.
 _SOURCE_NAMES = {
     "replica_ceiling/v1": "repeated labels",
     "builtin_witness/v1:knn": "built-in k-NN",
     "builtin_witness/v1:probe": "built-in linear probe",
     "user_witness/v1": "your model",
+    "local_panels": _GROUP_CEILING,
+    "replicas": "repeated labels",
+    "knn": "built-in k-NN",
+    "linear_probe": "built-in linear probe",
+    "user_model": "your model",
 }
 _EVIDENCE_SCHEMA = {
     "target_spec": pl.String,
@@ -1208,7 +1218,7 @@ _EVIDENCE_SCHEMA = {
 }
 
 
-def _evidence_rows(output: PlottableFeasibility) -> pl.DataFrame:
+def _evidence_rows(output: PlottableFeasibilityDeterminations) -> pl.DataFrame:
     """One row per endpoint on a target in ``determinations``, in their order, then the order of ``evidence``."""
     targets = {r["target_spec"]: r for r in output.determinations.iter_rows(named=True)}
     rows = []
@@ -1248,6 +1258,84 @@ def _evidence_rows(output: PlottableFeasibility) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=_EVIDENCE_SCHEMA)
 
 
+def _decisions_inputs(output: PlottableFeasibilityDecisions) -> tuple[list[dict[str, Any]], pl.DataFrame]:
+    """
+    Read the decisions and bounds shape as the determination rows and evidence frame the bands are built from.
+
+    The rows use the determinations shape's vocabulary, so everything downstream reads either shape alike: an
+    unresolved decision with limitation ``conflict`` is an ``evidence_conflict``, and ``envelope`` is a ``ceiling``.
+    """
+    decisions = list(output.decisions.iter_rows(named=True))
+    bounds = list(output.bounds.iter_rows(named=True))
+    rows: list[dict[str, Any]] = []
+    evidence: list[dict[str, Any]] = []
+    for d in decisions:
+        # ponytail: a private join key in the old reader's vocabulary; typed keys replace it when that reader goes
+        spec = json.dumps(
+            {
+                "metric": d["metric"],
+                "scope": d["judged_scope"],
+                "class_name": d["class_name"],
+                "aggregation": d["aggregation"],
+                "ap_functional": d["ap_functional"],
+                "max_false_positive_rate": d["max_false_positive_rate"],
+                "threshold": d["threshold"],
+            },
+            sort_keys=True,
+        )
+        conflict = d["decision"] == "unresolved" and d["limitation"] == "conflict"
+        rows.append(
+            {
+                "target_spec": spec,
+                "metric": d["metric"],
+                "threshold": d["threshold"],
+                "judged_scope": d["judged_scope"],
+                "determination": "evidence_conflict" if conflict else d["decision"],
+                "ceiling": d["envelope"],
+                "ceiling_scope": d["envelope_scope"],
+                "witness": d["witness"],
+                "witness_source": d["witness_source"],
+            }
+        )
+        mine = [b for b in bounds if b["requirement"] == d["requirement"]]
+        f0 = d["max_false_positive_rate"]
+        for b in mine:
+            q = _FALSE_POSITIVE if b["quantity"] == _FALSE_POSITIVE else "metric"
+            fp = next(
+                (x["bound"] for x in mine if x["source"] == b["source"] and x["quantity"] == _FALSE_POSITIVE), None
+            )
+            # A recall witness counts only when its own false-positive upper bound is within the limit
+            uncertified = q == "metric" and b["bound_type"] == "lower" and f0 is not None and (fp is None or fp > f0)
+            evidence.append(
+                {
+                    "target_spec": spec,
+                    "metric": d["metric"],
+                    "threshold": d["threshold"],
+                    "source": _SOURCE_NAMES.get(b["source"], b["source"]),
+                    "evidence_id": b["source"],
+                    "information_scope": b["information_scope"],
+                    "unit": b["unit"],
+                    "bound_type": b["bound_type"],
+                    "observed": b["observed"],
+                    "bound": b["bound"],
+                    "n": b["n"],
+                    "state": b["state"],
+                    "quantity": q,
+                    "uncertified": uncertified,
+                    "false_positive_bound": fp,
+                    "false_positive_limit": f0,
+                }
+            )
+    return rows, pl.DataFrame(evidence, schema=_EVIDENCE_SCHEMA)
+
+
+def _feasibility_inputs(output: PlottableFeasibility) -> tuple[list[dict[str, Any]], pl.DataFrame]:
+    """The determination rows and evidence frame of a feasibility output in either shape."""
+    if isinstance(output, PlottableFeasibilityDecisions):
+        return _decisions_inputs(output)
+    return list(output.determinations.iter_rows(named=True)), _evidence_rows(output)
+
+
 def prepare_feasibility_data(output: PlottableFeasibility) -> list[FeasibilityBand]:
     """
     Prepare feasibility data for plotting across all backends.
@@ -1265,13 +1353,13 @@ def prepare_feasibility_data(output: PlottableFeasibility) -> list[FeasibilityBa
     list[FeasibilityBand]
         One band per quantity, in the order the determinations first name it
     """
-    rows = list(output.determinations.iter_rows(named=True))
+    rows, evidence_frame = _feasibility_inputs(output)
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         spec = json.loads(row["target_spec"])
         spec.pop("threshold", None)
         groups.setdefault(json.dumps(spec, sort_keys=True), []).append(row)
-    evidence = _evidence_rows(output).to_dicts()
+    evidence = evidence_frame.to_dicts()
     alpha = output.meta().state["alpha"]
     noun = _unit(rows, [e for e in evidence if e["quantity"] == "metric"]) or "image"  # the printout's footer noun
     bands = []

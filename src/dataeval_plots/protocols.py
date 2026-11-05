@@ -13,7 +13,9 @@ The protocol hierarchy:
   - PlottableStats
   - PlottableDriftMVDC
   - PlottableDrift
-  - PlottableFeasibility
+  - PlottableFeasibilityDeterminations
+  - PlottableFeasibilityDecisions
+  - PlottableFeasibility (either of the two feasibility shapes)
 """
 
 from __future__ import annotations
@@ -358,8 +360,8 @@ class FeasibilityEvidence(Protocol):
 
 
 @runtime_checkable
-class PlottableFeasibility(Plottable, Protocol):
-    """Protocol for feasibility plot outputs.
+class PlottableFeasibilityDeterminations(Plottable, Protocol):
+    """Protocol for feasibility plot outputs in the ``determinations`` and ``evidence`` shape.
 
     Required attributes:
     - determinations: One row per target (DataFrame)
@@ -381,6 +383,45 @@ class PlottableFeasibility(Plottable, Protocol):
     @property
     def plot_type(self) -> Literal["feasibility"]: ...
 
+
+@runtime_checkable
+class PlottableFeasibilityDecisions(Plottable, Protocol):
+    """Protocol for feasibility plot outputs in the ``decisions`` and ``bounds`` shape.
+
+    Required attributes:
+    - decisions: One row per requirement (DataFrame)
+    - bounds: One row per source, requirement and quantity (DataFrame)
+    - meta().state["alpha"]: The call's error budget
+    - plot_type -> 'feasibility'
+
+    Structures:
+    - decisions columns: requirement, metric, threshold, judged_scope, class_name, aggregation, ap_functional,
+      max_false_positive_rate, decision, limitation, envelope, envelope_scope, witness, witness_source
+    - bounds columns: requirement, source, role, quantity, bound_type, information_scope, unit, state, bound,
+      observed, n; ``requirement`` joins a bound to its decisions row
+
+    Enum columns are read as strings, with these values:
+    - decision: demonstrated_feasible, infeasible_under_recorded_assumptions, not_ruled_out, unresolved
+    - limitation: only ``conflict`` is read; with decision ``unresolved`` it marks a conflict between a witness and an
+      envelope
+    - judged_scope, envelope_scope, information_scope: full_input, fixed_representation, partition_restricted
+    - source, witness_source: local_panels, replicas, knn, linear_probe, user_model (any other value shows its text)
+    - role: envelope, witness. bound_type: lower, upper
+    - quantity: a metric name (accuracy, ap, recall, recall_at_fp, mota) or false_positive_rate
+    - state: unavailable, uninformative, informative. unit: image, sequence
+    - aggregation: frame_pooled, sequence_mean. ap_functional: population_ap_integral, population_ap_101
+    """
+
+    @property
+    def decisions(self) -> pl.DataFrame: ...
+    @property
+    def bounds(self) -> pl.DataFrame: ...
+    @property
+    def plot_type(self) -> Literal["feasibility"]: ...
+
+
+PlottableFeasibility = PlottableFeasibilityDeterminations | PlottableFeasibilityDecisions
+"""A feasibility output in either shape; DataEval 1.2.0 gives the first, later releases the second."""
 
 # Type alias for all plottable types
 PlottableType = (
