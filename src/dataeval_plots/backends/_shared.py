@@ -15,7 +15,7 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
-from dataeval_plots.protocols import PlottableFeasibilityDecisions
+from dataeval_plots.protocols import PlottableFeasibilityBounds
 
 if TYPE_CHECKING:
     from dataeval_plots.protocols import (
@@ -1185,7 +1185,7 @@ def _feasibility_band(
 
 
 # The readable name of each source: by DataEval 1.2.0's evidence id (these mirror its performance/_feasibility.py:
-# _SOURCES, _source_name, _unit_noun and FeasibilityOutput._bounds), and by the `source` value of the decisions and
+# _SOURCES, _source_name, _unit_noun and FeasibilityOutput._bounds), and by the `source` value of the determinations and
 # bounds shape. Any other value shows its own text.
 _SOURCE_NAMES = {
     "replica_ceiling/v1": "repeated labels",
@@ -1258,18 +1258,19 @@ def _evidence_rows(output: PlottableFeasibilityDeterminations) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=_EVIDENCE_SCHEMA)
 
 
-def _decisions_inputs(output: PlottableFeasibilityDecisions) -> tuple[list[dict[str, Any]], pl.DataFrame]:
+def _bounds_inputs(output: PlottableFeasibilityBounds) -> tuple[list[dict[str, Any]], pl.DataFrame]:
     """
-    Read the decisions and bounds shape as the determination rows and evidence frame the bands are built from.
+    Read the determinations and bounds shape as the determination rows and evidence frame the bands are built from.
 
-    The rows use the determinations shape's vocabulary, so everything downstream reads either shape alike: an
-    unresolved decision with limitation ``conflict`` is an ``evidence_conflict``, and ``envelope`` is a ``ceiling``.
+    The rows use the determinations and evidence shape's vocabulary, so everything downstream reads either shape
+    alike: an unresolved determination with limitation ``conflict`` is an ``evidence_conflict``, and ``envelope`` is a
+    ``ceiling``.
     """
-    decisions = list(output.decisions.iter_rows(named=True))
+    determinations = list(output.determinations.iter_rows(named=True))
     bounds = list(output.bounds.iter_rows(named=True))
     rows: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
-    for d in decisions:
+    for d in determinations:
         # ponytail: a private join key in the old reader's vocabulary; typed keys replace it when that reader goes
         spec = json.dumps(
             {
@@ -1283,14 +1284,14 @@ def _decisions_inputs(output: PlottableFeasibilityDecisions) -> tuple[list[dict[
             },
             sort_keys=True,
         )
-        conflict = d["decision"] == "unresolved" and d["limitation"] == "conflict"
+        conflict = d["determination"] == "unresolved" and d["limitation"] == "conflict"
         rows.append(
             {
                 "target_spec": spec,
                 "metric": d["metric"],
                 "threshold": d["threshold"],
                 "judged_scope": d["judged_scope"],
-                "determination": "evidence_conflict" if conflict else d["decision"],
+                "determination": "evidence_conflict" if conflict else d["determination"],
                 "ceiling": d["envelope"],
                 "ceiling_scope": d["envelope_scope"],
                 "witness": d["witness"],
@@ -1331,8 +1332,8 @@ def _decisions_inputs(output: PlottableFeasibilityDecisions) -> tuple[list[dict[
 
 def _feasibility_inputs(output: PlottableFeasibility) -> tuple[list[dict[str, Any]], pl.DataFrame]:
     """The determination rows and evidence frame of a feasibility output in either shape."""
-    if isinstance(output, PlottableFeasibilityDecisions):
-        return _decisions_inputs(output)
+    if isinstance(output, PlottableFeasibilityBounds):
+        return _bounds_inputs(output)
     return list(output.determinations.iter_rows(named=True)), _evidence_rows(output)
 
 

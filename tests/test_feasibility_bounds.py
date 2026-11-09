@@ -1,4 +1,4 @@
-"""Tests for plotting a Feasibility output in the decisions and bounds shape."""
+"""Tests for plotting a Feasibility output in the determinations and bounds shape."""
 
 import json
 from dataclasses import dataclass
@@ -11,12 +11,14 @@ from conftest import MockExecutionMetadata, MockPlottableFeasibility, _feasibili
 
 from dataeval_plots import plot
 from dataeval_plots.backends._shared import feasibility_zones, prepare_feasibility_data
-from dataeval_plots.protocols import PlottableFeasibilityDecisions, PlottableFeasibilityDeterminations
+from dataeval_plots.protocols import PlottableFeasibilityBounds, PlottableFeasibilityDeterminations
 
 _METRIC = pl.Enum(["accuracy", "ap", "recall", "recall_at_fp", "mota"])
 _QUANTITY = pl.Enum([*_METRIC.categories, "false_positive_rate"])
 _SCOPE = pl.Enum(["full_input", "fixed_representation", "partition_restricted"])
-_DECISION = pl.Enum(["demonstrated_feasible", "infeasible_under_recorded_assumptions", "not_ruled_out", "unresolved"])
+_DETERMINATION = pl.Enum(
+    ["demonstrated_feasible", "infeasible_under_recorded_assumptions", "not_ruled_out", "unresolved"]
+)
 _LIMITATION = pl.Enum(
     ["sampling_width", "no_replicas", "scope_restricted", "no_witness", "missing_bound", "conflict", "no_envelope"]
 )
@@ -37,10 +39,10 @@ _NEW_SOURCE = {
 
 
 @dataclass
-class MockPlottableFeasibilityDecisions:
-    """Mock feasibility output in the decisions and bounds shape."""
+class MockPlottableFeasibilityBounds:
+    """Mock feasibility output in the determinations and bounds shape."""
 
-    decisions: pl.DataFrame
+    determinations: pl.DataFrame
     bounds: pl.DataFrame
     alpha: float = 0.05
 
@@ -58,16 +60,16 @@ def _new_source(evidence_id: str, kind: str = "") -> str:
     return _NEW_SOURCE.get(evidence_id, evidence_id)
 
 
-def as_decisions(old: MockPlottableFeasibility) -> MockPlottableFeasibilityDecisions:
-    """Re-express a determinations and evidence mock in the decisions and bounds shape."""
-    decisions: list[dict[str, Any]] = []
+def as_bounds(old: MockPlottableFeasibility) -> MockPlottableFeasibilityBounds:
+    """Re-express a determinations and evidence mock in the determinations and bounds shape."""
+    determinations: list[dict[str, Any]] = []
     bounds: list[dict[str, Any]] = []
     for i, row in enumerate(old.determinations.iter_rows(named=True)):
         spec_key = row["target_spec"]
         spec = json.loads(spec_key)
         conflict = row["determination"] == "evidence_conflict"
         witness_source = row["witness_source"]
-        decisions.append(
+        determinations.append(
             {
                 "requirement": i,
                 "metric": row["metric"],
@@ -77,7 +79,7 @@ def as_decisions(old: MockPlottableFeasibility) -> MockPlottableFeasibilityDecis
                 "aggregation": spec["aggregation"],
                 "ap_functional": spec["ap_functional"],
                 "max_false_positive_rate": spec["max_false_positive_rate"],
-                "decision": "unresolved" if conflict else row["determination"],
+                "determination": "unresolved" if conflict else row["determination"],
                 "limitation": "conflict" if conflict else None,
                 "envelope": row["ceiling"],
                 "envelope_scope": row["ceiling_scope"],
@@ -110,9 +112,9 @@ def as_decisions(old: MockPlottableFeasibility) -> MockPlottableFeasibilityDecis
                 )
     unknown = sorted({b["source"] for b in bounds} - set(_SOURCES))
     source = pl.Enum([*_SOURCES, *unknown])
-    return MockPlottableFeasibilityDecisions(
-        decisions=pl.DataFrame(
-            decisions,
+    return MockPlottableFeasibilityBounds(
+        determinations=pl.DataFrame(
+            determinations,
             schema={
                 "requirement": pl.Int64,
                 "metric": _METRIC,
@@ -122,7 +124,7 @@ def as_decisions(old: MockPlottableFeasibility) -> MockPlottableFeasibilityDecis
                 "aggregation": _AGGREGATION,
                 "ap_functional": _AP_FUNCTIONAL,
                 "max_false_positive_rate": pl.Float64,
-                "decision": _DECISION,
+                "determination": _DETERMINATION,
                 "limitation": _LIMITATION,
                 "envelope": pl.Float64,
                 "envelope_scope": _SCOPE,
@@ -151,28 +153,28 @@ def as_decisions(old: MockPlottableFeasibility) -> MockPlottableFeasibilityDecis
 
 
 def test_each_mock_satisfies_only_its_own_protocol(mock_feasibility_how_to):
-    new = as_decisions(mock_feasibility_how_to)
-    assert isinstance(new, PlottableFeasibilityDecisions)
+    new = as_bounds(mock_feasibility_how_to)
+    assert isinstance(new, PlottableFeasibilityBounds)
     assert not isinstance(new, PlottableFeasibilityDeterminations)
     assert isinstance(mock_feasibility_how_to, PlottableFeasibilityDeterminations)
-    assert not isinstance(mock_feasibility_how_to, PlottableFeasibilityDecisions)
+    assert not isinstance(mock_feasibility_how_to, PlottableFeasibilityBounds)
 
 
-def test_decisions_columns_use_enum_dtypes(mock_feasibility_how_to):
-    new = as_decisions(mock_feasibility_how_to)
-    assert isinstance(new.decisions.schema["decision"], pl.Enum)
+def test_determinations_columns_use_enum_dtypes(mock_feasibility_how_to):
+    new = as_bounds(mock_feasibility_how_to)
+    assert isinstance(new.determinations.schema["determination"], pl.Enum)
     assert isinstance(new.bounds.schema["source"], pl.Enum)
-    assert new.decisions["decision"].to_list() == ["demonstrated_feasible", "unresolved"]
+    assert new.determinations["determination"].to_list() == ["demonstrated_feasible", "unresolved"]
 
 
 FIXTURES = [n for n in vars(conftest) if n.startswith("mock_feasibility_")]  # ten today
 
 
-def _set_limitation(output: MockPlottableFeasibilityDecisions, value: str) -> MockPlottableFeasibilityDecisions:
+def _set_limitation(output: MockPlottableFeasibilityBounds, value: str) -> MockPlottableFeasibilityBounds:
     """Give every unresolved row the limitation ``value``."""
-    limitation = pl.when(pl.col("decision") == "unresolved").then(pl.lit(value)).otherwise(None).cast(_LIMITATION)
-    return MockPlottableFeasibilityDecisions(
-        output.decisions.with_columns(limitation.alias("limitation")), output.bounds, output.alpha
+    limitation = pl.when(pl.col("determination") == "unresolved").then(pl.lit(value)).otherwise(None).cast(_LIMITATION)
+    return MockPlottableFeasibilityBounds(
+        output.determinations.with_columns(limitation.alias("limitation")), output.bounds, output.alpha
     )
 
 
@@ -181,37 +183,37 @@ def test_every_feasibility_fixture_is_covered():
 
 
 @pytest.mark.parametrize("name", FIXTURES)
-def test_decisions_shape_gives_the_same_bands(name, request):
+def test_bounds_shape_gives_the_same_bands(name, request):
     old = request.getfixturevalue(name)
-    assert prepare_feasibility_data(as_decisions(old)) == prepare_feasibility_data(old)
+    assert prepare_feasibility_data(as_bounds(old)) == prepare_feasibility_data(old)
 
 
 def test_conflict_is_unresolved_with_limitation_conflict(mock_feasibility_conflict):
-    (band,) = prepare_feasibility_data(as_decisions(mock_feasibility_conflict))
+    (band,) = prepare_feasibility_data(as_bounds(mock_feasibility_conflict))
     assert band.conflict and feasibility_zones(band) == []
 
 
 def test_another_limitation_is_not_a_conflict(mock_feasibility_how_to):
-    new = as_decisions(mock_feasibility_how_to)
+    new = as_bounds(mock_feasibility_how_to)
     (band,) = prepare_feasibility_data(_set_limitation(new, "no_witness"))
     assert not band.conflict
 
 
 def test_unknown_source_shows_its_text():
     old = _feasibility([_target(0.9, "unresolved")], [_source("custom_witness/v1:mine", 0.85)])
-    (band,) = prepare_feasibility_data(as_decisions(old))
+    (band,) = prepare_feasibility_data(as_bounds(old))
     assert band.evidence[0].source == "custom_witness/v1:mine"
 
 
 def test_bounds_for_an_unknown_requirement_are_ignored(mock_feasibility_ruled_out):
-    new = as_decisions(mock_feasibility_ruled_out)
+    new = as_bounds(mock_feasibility_ruled_out)
     stray = new.bounds.head(1).with_columns(requirement=pl.lit(99, dtype=pl.Int64))
-    extra = MockPlottableFeasibilityDecisions(new.decisions, pl.concat([new.bounds, stray]), new.alpha)
+    extra = MockPlottableFeasibilityBounds(new.determinations, pl.concat([new.bounds, stray]), new.alpha)
     assert prepare_feasibility_data(extra) == prepare_feasibility_data(new)
 
 
 @pytest.mark.parametrize("backend", ["matplotlib", "seaborn", "plotly", "altair"])
 @pytest.mark.parametrize("plot_evidence", [False, True])
-def test_plot_draws_the_decisions_shape(backend, plot_evidence, mock_feasibility_recall):
+def test_plot_draws_the_bounds_shape(backend, plot_evidence, mock_feasibility_recall):
     pytest.importorskip(backend)
-    assert plot(as_decisions(mock_feasibility_recall), backend=backend, plot_evidence=plot_evidence) is not None
+    assert plot(as_bounds(mock_feasibility_recall), backend=backend, plot_evidence=plot_evidence) is not None

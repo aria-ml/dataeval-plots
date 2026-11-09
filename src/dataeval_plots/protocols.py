@@ -14,7 +14,7 @@ The protocol hierarchy:
   - PlottableDriftMVDC
   - PlottableDrift
   - PlottableFeasibilityDeterminations
-  - PlottableFeasibilityDecisions
+  - PlottableFeasibilityBounds
   - PlottableFeasibility (either of the two feasibility shapes)
 """
 
@@ -385,25 +385,25 @@ class PlottableFeasibilityDeterminations(Plottable, Protocol):
 
 
 @runtime_checkable
-class PlottableFeasibilityDecisions(Plottable, Protocol):
-    """Protocol for feasibility plot outputs in the ``decisions`` and ``bounds`` shape.
+class PlottableFeasibilityBounds(Plottable, Protocol):
+    """Protocol for feasibility plot outputs in the ``determinations`` and ``bounds`` shape.
 
     Required attributes:
-    - decisions: One row per requirement (DataFrame)
+    - determinations: One row per requirement (DataFrame)
     - bounds: One row per source, requirement and quantity (DataFrame)
     - meta().state["alpha"]: The call's error budget
     - plot_type -> 'feasibility'
 
     Structures:
-    - decisions columns: requirement, metric, threshold, judged_scope, class_name, aggregation, ap_functional,
-      max_false_positive_rate, decision, limitation, envelope, envelope_scope, witness, witness_source
+    - determinations columns: requirement, metric, threshold, judged_scope, class_name, aggregation, ap_functional,
+      max_false_positive_rate, determination, limitation, envelope, envelope_scope, witness, witness_source
     - bounds columns: requirement, source, role, quantity, bound_type, information_scope, unit, state, bound,
-      observed, n; ``requirement`` joins a bound to its decisions row
+      observed, n; ``requirement`` joins a bound to its determinations row
 
     Enum columns are read as strings, with these values:
-    - decision: demonstrated_feasible, infeasible_under_recorded_assumptions, not_ruled_out, unresolved
-    - limitation: only ``conflict`` is read; with decision ``unresolved`` it marks a conflict between a witness and an
-      envelope
+    - determination: demonstrated_feasible, infeasible_under_recorded_assumptions, not_ruled_out, unresolved
+    - limitation: only ``conflict`` is read; with determination ``unresolved`` it marks a conflict between a witness
+      and an envelope
     - judged_scope, envelope_scope, information_scope: full_input, fixed_representation, partition_restricted
     - source, witness_source: local_panels, replicas, knn, linear_probe, user_model (any other value shows its text)
     - role: envelope, witness. bound_type: lower, upper
@@ -413,14 +413,14 @@ class PlottableFeasibilityDecisions(Plottable, Protocol):
     """
 
     @property
-    def decisions(self) -> pl.DataFrame: ...
+    def determinations(self) -> pl.DataFrame: ...
     @property
     def bounds(self) -> pl.DataFrame: ...
     @property
     def plot_type(self) -> Literal["feasibility"]: ...
 
 
-PlottableFeasibility = PlottableFeasibilityDeterminations | PlottableFeasibilityDecisions
+PlottableFeasibility = PlottableFeasibilityDeterminations | PlottableFeasibilityBounds
 """A feasibility output in either shape; DataEval 1.2.0 gives the first, later releases the second."""
 
 # Type alias for all plottable types
