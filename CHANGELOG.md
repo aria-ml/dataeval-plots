@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.18] - 2026-11-09
+
+- [impr] Read the Feasibility determinations and bounds shape, named as DataEval now names its verdicts
+
 ## [0.0.17] - 2026-11-05
 
 - [feat] Plot Feasibility outputs that give decisions and bounds, besides the determinations and evidence shape
