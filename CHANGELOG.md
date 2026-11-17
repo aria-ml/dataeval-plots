@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.20] - 2026-11-17
+
+- [feat] Show gray images in gray in the image grid, and add max_size to scale large images down so their boxes stay visible
+
 ## [0.0.19] - 2026-11-17
 
 - [feat] Plot image grids from plain arrays with titles and chosen boxes, and animate frame sequences as GIFs
