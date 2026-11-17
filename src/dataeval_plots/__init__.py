@@ -152,6 +152,7 @@ def plot(
     boxes: bool | Sequence[ArrayLike] = True,
     region: tuple[int, int, int, int] | None = None,
     box_color: str = "lime",
+    max_size: int | None = None,
 ) -> Any:
     """
     Plot images from a dataset as a grid of panels.
@@ -178,6 +179,9 @@ def plot(
         One ``(x0, y0, x1, y1)`` crop in full-image pixels for every panel. Boxes stay in full-image pixels.
     box_color : str, default "lime"
         Color of the boxes: any matplotlib color, such as ``"red"`` or ``"#ff8800"``
+    max_size : int or None, default None
+        Longest side of each panel in pixels. Larger images are scaled down before their boxes are drawn, so the boxes
+        stay visible; pick a value near the size the panels are shown at. None keeps each image's size.
     """
     ...
 
@@ -198,6 +202,7 @@ def plot(
     boxes: bool | Sequence[ArrayLike] = True,
     region: tuple[int, int, int, int] | None = None,
     box_color: str = "lime",
+    max_size: int | None = None,
 ) -> Any:
     """
     Plot a list of image arrays, each 2-D or 3-D, or one 4-D array of images, as a grid of panels.
@@ -240,7 +245,7 @@ def plot(
     **kwargs
         Options for the output's plot, such as ``plot_evidence`` for feasibility outputs, or the image grid's
         ``indices``, ``images_per_row``, ``show_labels``, ``show_metadata``, ``additional_metadata``, ``titles``,
-        ``boxes``, ``region`` and ``box_color``
+        ``boxes``, ``region``, ``box_color`` and ``max_size``
 
     Returns
     -------

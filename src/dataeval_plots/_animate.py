@@ -95,8 +95,6 @@ def animate(
 
     if not 0 < fps <= 50:
         raise ValueError(f"fps must be greater than 0 and at most 50, got {fps}")
-    if max_size < 1:
-        raise ValueError(f"max_size must be at least 1 pixel, got {max_size}")
     dataset = as_image_dataset(frames) if isinstance(frames, list | tuple | np.ndarray) else cast(Dataset, frames)
     order = range(len(dataset)) if indices is None else indices
     if len(order) == 0:
@@ -108,8 +106,8 @@ def animate(
     images: list[Image.Image] = []
     for i, index in enumerate(order):
         image, target, metadata = parse_dataset_item(dataset[index])
-        hwc = image_to_hwc(np.asarray(image))
-        rgb = np.repeat(hwc, 3, axis=2) if hwc.shape[2] == 1 else hwc[:, :, :3]
+        # A GIF has no alpha, so RGBA frames lose it; the panel step shows gray frames in gray
+        rgb = image_to_hwc(np.asarray(image))[:, :, :3]
         pixels, _, _ = process_dataset_item_for_display(
             (rgb, target, metadata),
             index2label=index2label,

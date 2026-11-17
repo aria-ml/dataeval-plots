@@ -5,7 +5,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
-from typing import Any
+import sys
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -96,9 +97,11 @@ def test_default_grid_is_unchanged(backend: str, boxed_dataset: MockDataset) -> 
 
 
 def _as_panel(image: NDArray[Any]) -> NDArray[Any]:
+    """The panel an image becomes: HWC uint8, with a gray image repeated to three channels."""
     from dataeval_plots.backends._shared import image_to_hwc, normalize_image_to_uint8
 
-    return normalize_image_to_uint8(image_to_hwc(image))
+    panel = normalize_image_to_uint8(image_to_hwc(image))
+    return np.repeat(panel, 3, axis=2) if panel.shape[2] == 1 else panel
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -112,8 +115,7 @@ def test_a_list_of_arrays_plots(backend: str) -> None:
     shown = panels(plot(images, backend=backend))
     assert len(shown) == 3
     for panel, image in zip(shown, images, strict=True):
-        # A gray panel may come back as (H, W) or (H, W, 1), depending on the backend
-        assert np.array_equal(panel.reshape(-1), _as_panel(image).reshape(-1))
+        assert np.array_equal(panel, _as_panel(image))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -176,11 +178,44 @@ def test_given_boxes_replace_the_target(backend: str, black_boxed: MockDataset) 
     assert not second.any()
 
 
-def test_given_boxes_on_gray_raise() -> None:
-    gray = [np.zeros((40, 40), np.uint8)]
-    with pytest.raises(ValueError, match="1-channel"):
-        plot(gray, boxes=[[[1, 1, 5, 5]]])
-    plot(gray, boxes=[[]])
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_gray_panels_are_shown_in_gray(backend: str) -> None:
+    rng = np.random.default_rng(2)
+    images = [rng.integers(2, 256, (20, 30), dtype=np.uint8), rng.integers(2, 256, (1, 20, 30), dtype=np.uint8)]
+    for panel, image in zip(panels(plot(images, backend=backend)), images, strict=True):
+        assert panel.shape == (20, 30, 3)
+        assert all(np.array_equal(panel[:, :, c], image.reshape(20, 30)) for c in range(3))
+
+
+@pytest.mark.parametrize("draw", ["opencv", "pillow"])
+def test_boxes_on_gray_are_drawn_in_color(draw: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    if draw == "pillow":
+        monkeypatch.setitem(sys.modules, "cv2", None)  # import cv2 now raises, so boxes are drawn with Pillow
+    gray = np.zeros((40, 40), np.uint8)
+    (given,) = panels(plot([gray], boxes=[[[20, 20, 30, 30]]]))
+    assert tuple(given[25, 20]) == GREEN
+    target = {"boxes": np.array([[20, 20, 30, 30]]), "labels": np.array([0]), "scores": np.array([1.0])}
+    (drawn,) = panels(plot(MockDataset(images=[gray], targets=[target])))
+    assert tuple(drawn[25, 20]) == GREEN
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_max_size_scales_every_panel(backend: str) -> None:
+    images = [np.zeros((200, 400, 3), np.uint8)] * 2
+    first, second = panels(plot(images, backend=backend, max_size=100, boxes=[[[100, 50, 300, 150]], []]))
+    assert first.shape == second.shape == (50, 100, 3)
+    assert tuple(first[25, 25]) == GREEN  # left edge at rint(100 * 0.25)
+    assert not second.any()
+
+
+def test_max_size_sizes_the_matplotlib_figure() -> None:
+    fig = plot([np.zeros((400, 1600, 3), np.uint8)], max_size=200)
+    assert fig.get_size_inches()[0] == 6  # 200 px at 100 px per inch, 3 panels per row
+
+
+def test_max_size_below_one_raises() -> None:
+    with pytest.raises(ValueError, match="max_size"):
+        plot([np.zeros((20, 30, 3), np.uint8)], max_size=0)
 
 
 def test_flat_box_raises() -> None:
@@ -222,7 +257,7 @@ def test_box_color(backend: str) -> None:
 def test_a_list_of_dataset_items_says_pass_a_list() -> None:
     item = (np.zeros((3, 20, 30), np.uint8), {"boxes": np.array([[1, 1, 5, 5]]), "labels": np.array([0])}, {})
     with pytest.raises(ValueError, match="list of images"):
-        plot([item, item])
+        plot(cast(Any, [item, item]))  # the wrong input on purpose
 
 
 @pytest.mark.parametrize("region", [(0.0, 0, 10, 10), (0, 0, 10)], ids=["float corner", "three values"])

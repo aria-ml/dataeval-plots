@@ -2161,7 +2161,7 @@ def process_dataset_item_for_display(
     1. Parse dataset item (image, target, metadata)
     2. Merge with additional metadata if provided
     3. Convert image to HWC format
-    4. Normalize image to uint8
+    4. Normalize image to uint8, and repeat a gray image to three channels
     5. Crop to the region
     6. Scale down to max_size
     7. Draw the target's boxes, the boxes given for the panel, or none
@@ -2183,8 +2183,8 @@ def process_dataset_item_for_display(
     box_color : tuple[int, int, int], default (0, 255, 0)
         RGB color of the boxes
     max_size : int or None, default None
-        Longest side in pixels: a larger RGB image is scaled down before the boxes are drawn, so they keep their
-        width. None keeps the size.
+        Longest side in pixels: a larger image is scaled down before the boxes are drawn, so they keep their width.
+        None keeps the size.
     panel : int, default 0
         The panel's position in the grid, named in error messages
 
@@ -2206,8 +2206,11 @@ def process_dataset_item_for_display(
     # Step 3: Convert image to HWC format
     image_hwc = image_to_hwc(image)
 
-    # Step 4: Normalize image to uint8
+    # Step 4: Normalize image to uint8; a gray image becomes three equal channels, so every backend shows it in gray
+    # and boxes on it are drawn in color
     image_uint8 = normalize_image_to_uint8(image_hwc)
+    if image_uint8.shape[2] == 1:
+        image_uint8 = np.repeat(image_uint8, 3, axis=2)
 
     # Step 5: Crop to the region; boxes are shifted by its corner when they are drawn
     if region is not None:
@@ -2228,13 +2231,14 @@ def process_dataset_item_for_display(
 
     # Step 6: Scale down so the longer side is at most max_size; boxes are scaled to match when they are drawn
     scale = 1.0
+    if max_size is not None and max_size < 1:
+        raise ValueError(f"max_size must be at least 1 pixel, got {max_size}")
     if max_size is not None and max(image_uint8.shape[:2]) > max_size:
         from PIL import Image
 
         height, width = image_uint8.shape[:2]
         scale = max_size / max(height, width)
         size = (max(1, round(width * scale)), max(1, round(height * scale)))
-        # ponytail: RGB only (animate converts frames first); a 1-channel image would need squeezing for Pillow
         # Image.Resampling is new in Pillow 9.1; older Pillow, which matplotlib still allows, has Image.LANCZOS
         lanczos = getattr(Image, "Resampling", Image).LANCZOS  # pyright: ignore[reportAttributeAccessIssue]
         image_uint8 = np.asarray(Image.fromarray(image_uint8).resize(size, lanczos))
@@ -2252,11 +2256,6 @@ def process_dataset_item_for_display(
                 image_uint8, placed(target_boxes), labels, scores, index2label, color=box_color
             )
     elif len(boxes) > 0:
-        if image_uint8.shape[2] == 1:
-            raise ValueError(
-                f"Panel {panel} is a 1-channel image, where a colored box cannot be seen; convert it to RGB or "
-                "give it no boxes"
-            )
         image_uint8 = draw_bounding_boxes(image_uint8, placed(boxes), color=box_color)
 
     return image_uint8, target, metadata
