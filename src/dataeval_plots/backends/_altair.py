@@ -907,6 +907,7 @@ class AltairBackend(BasePlottingBackend):
         boxes: bool | Sequence[ArrayLike] = True,
         region: tuple[int, int, int, int] | None = None,
         box_color: str = "lime",
+        max_size: int | None = None,
     ) -> Any:
         """Plot a grid of images with Altair; ``dataeval_plots.plot`` documents the options."""
         import altair as alt
@@ -938,6 +939,7 @@ class AltairBackend(BasePlottingBackend):
                 boxes=panel_boxes[i],
                 region=region,
                 box_color=color,
+                max_size=max_size,
                 panel=i,
             )
             for i, idx in enumerate(indices)

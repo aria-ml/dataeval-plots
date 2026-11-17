@@ -973,6 +973,7 @@ class PlotlyBackend(BasePlottingBackend):
         boxes: bool | Sequence[ArrayLike] = True,
         region: tuple[int, int, int, int] | None = None,
         box_color: str = "lime",
+        max_size: int | None = None,
     ) -> Any:
         """Plot a grid of images with Plotly; ``dataeval_plots.plot`` documents the options."""
         import plotly.graph_objects as go
@@ -1009,6 +1010,7 @@ class PlotlyBackend(BasePlottingBackend):
                 boxes=panel_boxes[i],
                 region=region,
                 box_color=color,
+                max_size=max_size,
                 panel=i,
             )
             processed_images.append(processed_image)

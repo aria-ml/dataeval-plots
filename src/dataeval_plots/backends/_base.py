@@ -114,6 +114,7 @@ class PlottingBackend(Protocol):
         boxes: bool | Sequence[ArrayLike] = True,
         region: tuple[int, int, int, int] | None = None,
         box_color: str = "lime",
+        max_size: int | None = None,
     ) -> Any: ...
 
     @overload
@@ -357,6 +358,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
         boxes: bool | Sequence[ArrayLike] = True,
         region: tuple[int, int, int, int] | None = None,
         box_color: str = "lime",
+        max_size: int | None = None,
     ) -> Figure:
         """Plot a grid of images; ``dataeval_plots.plot`` documents the options."""
         import matplotlib.pyplot as plt
@@ -396,6 +398,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
                 boxes=panel_boxes[0],
                 region=region,
                 box_color=color,
+                max_size=max_size,
             )
             img_height, img_width = first_image.shape[:2]
 
@@ -430,6 +433,7 @@ class BasePlottingBackend(PlottingBackend, ABC):
                 boxes=panel_boxes[i],
                 region=region,
                 box_color=color,
+                max_size=max_size,
                 panel=i,
             )
 
