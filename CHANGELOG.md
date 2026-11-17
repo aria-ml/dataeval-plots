@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.19] - 2026-11-17
+
+- [feat] Plot image grids from plain arrays with titles and chosen boxes, and animate frame sequences as GIFs
+
 ## [0.0.18] - 2026-11-09
 
 - [impr] Read the Feasibility determinations and bounds shape, named as DataEval now names its verdicts
