@@ -69,6 +69,15 @@ fig = plot(result, images=dataset)  # Uses seaborn
 fig = plot(result, backend="matplotlib", images=dataset)
 ```
 
+### Image grids and animated GIFs
+
+```python
+from dataeval_plots import animate, plot
+
+fig = plot([before, after], titles=["before", "after"], boxes=[[[10, 10, 60, 40]], []], box_color="red")
+animate(frames, indices=range(100, 140), region=(0, 0, 640, 360)).save("clip.gif")
+```
+
 ## Features
 
 - **Multi-backend architecture**: Support for matplotlib (default), seaborn, plotly, and altair

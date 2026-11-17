@@ -7,18 +7,20 @@ import inspect
 import io
 import json
 import math
+import operator
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import polars as pl
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from dataeval_plots.protocols import PlottableFeasibilityBounds
 
 if TYPE_CHECKING:
     from dataeval_plots.protocols import (
+        Dataset,
         PlottableBalance,
         PlottableDiversity,
         PlottableDrift,
@@ -72,6 +74,9 @@ __all__ = [
     "draw_bounding_boxes",
     "extract_boxes_and_labels",
     "process_dataset_item_for_display",
+    "as_image_dataset",
+    "check_panel_options",
+    "box_rgb",
     "CHANNELWISE_METRICS",
 ]
 
@@ -1455,7 +1460,9 @@ def image_to_base64_png(img_np: NDArray[Any]) -> str:
 
     from PIL import Image
 
-    # Convert to PIL Image
+    # Pillow cannot encode (H, W, 1), so a gray image goes in as (H, W)
+    if img_np.ndim == 3 and img_np.shape[2] == 1:
+        img_np = img_np[:, :, 0]
     pil_img = Image.fromarray(img_np)
 
     # Convert to base64
@@ -1464,6 +1471,67 @@ def image_to_base64_png(img_np: NDArray[Any]) -> str:
     img_str = base64.b64encode(buffered.getvalue()).decode()
 
     return f"data:image/png;base64,{img_str}"
+
+
+class _ImageList:
+    """A list of images read as a dataset whose items have no target and no metadata."""
+
+    def __init__(self, images: list[NDArray[Any]]) -> None:
+        self._images = images
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return {}
+
+    def __getitem__(self, index: int) -> NDArray[Any]:
+        return self._images[index]
+
+    def __len__(self) -> int:
+        return len(self._images)
+
+
+def as_image_dataset(images: Sequence[ArrayLike] | NDArray[Any]) -> Dataset:
+    """
+    Read a list of image arrays, or one 4-D array of images, as a dataset of images.
+
+    Parameters
+    ----------
+    images : Sequence[ArrayLike] or NDArray
+        A list or tuple of 2-D ``(H, W)`` or 3-D ``(C, H, W)`` or ``(H, W, C)`` numeric arrays, or one 4-D array of
+        ``N`` images
+
+    Returns
+    -------
+    Dataset
+        A dataset whose items are the images, with no targets and no metadata
+
+    Raises
+    ------
+    ValueError
+        If ``images`` is a single 2-D or 3-D array, holds anything but 2-D or 3-D numeric arrays (a dataset item such
+        as ``dataset[0]`` is one such case), or is empty
+    """
+    fix = "pass a list of images, each (H, W), (C, H, W) or (H, W, C), or one 4-D array of N images"
+    if isinstance(images, np.ndarray):
+        if images.ndim != 4:
+            raise ValueError(f"Got a single {images.ndim}-D array; {fix}. Wrap one image in a list: [image].")
+        items = list(images)
+    else:
+        items = []
+        for i, image in enumerate(images):
+            try:
+                item = np.asarray(image)
+            except ValueError:  # a ragged item, such as a dataset item (image, target, metadata)
+                item = None
+            if item is None or item.ndim not in (2, 3) or item.dtype.kind not in "biuf":
+                raise ValueError(
+                    f"Item {i} ({type(image).__name__}) is not a 2-D or 3-D numeric image array; {fix}. A tuple such "
+                    "as dataset[0] is one dataset item, not an image."
+                )
+            items.append(item)
+    if not items:
+        raise ValueError(f"There are no images; {fix}.")
+    return _ImageList(items)
 
 
 def image_to_hwc(image: NDArray[Any]) -> NDArray[Any]:
@@ -2014,10 +2082,77 @@ def draw_bounding_boxes(
         return _draw_boxes_pil(img_with_boxes, boxes, label_indices, scores, index2label, color, thickness)
 
 
+def check_panel_options(
+    n_panels: int,
+    titles: Sequence[str] | None,
+    boxes: bool | Sequence[ArrayLike],
+) -> list[bool | NDArray[Any]]:
+    """
+    Check an image grid's per-panel options against the number of panels.
+
+    Parameters
+    ----------
+    n_panels : int
+        Number of panels in the grid
+    titles : Sequence[str] or None
+        One title per panel, or None
+    boxes : bool or Sequence[ArrayLike]
+        True for each target's boxes, False for none, or one array of XYXY boxes per panel
+
+    Returns
+    -------
+    list[bool | NDArray]
+        One ``boxes`` value per panel: the bool, or a float array of shape ``(N, 4)``
+
+    Raises
+    ------
+    ValueError
+        If ``titles`` or ``boxes`` does not have one entry per panel, or a panel's boxes are not ``(N, 4)``
+    """
+    if titles is not None and len(titles) != n_panels:
+        raise ValueError(f"titles length ({len(titles)}) must match the number of panels ({n_panels})")
+    if isinstance(boxes, bool):
+        return [boxes] * n_panels
+    if len(boxes) != n_panels:
+        raise ValueError(f"boxes length ({len(boxes)}) must match the number of panels ({n_panels})")
+    per_panel: list[bool | NDArray[Any]] = []
+    for i, panel_boxes in enumerate(boxes):
+        array = np.asarray(panel_boxes, dtype=np.float64)
+        if array.size == 0:
+            array = np.empty((0, 4))
+        if array.ndim != 2 or array.shape[1] != 4:
+            raise ValueError(
+                f"boxes for panel {i} must have shape (N, 4), as [[x0, y0, x1, y1], ...], got shape {array.shape}"
+            )
+        per_panel.append(array)
+    return per_panel
+
+
+def box_rgb(color: str) -> tuple[int, int, int]:
+    """
+    Convert a matplotlib color, such as ``"lime"`` or ``"#ff8800"``, to 0-255 RGB.
+
+    Raises
+    ------
+    ValueError
+        If matplotlib does not know the color
+    """
+    from matplotlib.colors import to_rgb
+
+    red, green, blue = to_rgb(color)
+    return round(red * 255), round(green * 255), round(blue * 255)
+
+
 def process_dataset_item_for_display(
     datum: Any,
     additional_metadata: dict[str, Any] | None = None,
     index2label: dict[int, str] | None = None,
+    *,
+    boxes: bool | NDArray[Any] = True,
+    region: tuple[int, int, int, int] | None = None,
+    box_color: tuple[int, int, int] = (0, 255, 0),
+    max_size: int | None = None,
+    panel: int = 0,
 ) -> tuple[NDArray[Any], Any | None, dict[str, Any]]:
     """
     Process a dataset item for display in image grids.
@@ -2026,9 +2161,10 @@ def process_dataset_item_for_display(
     1. Parse dataset item (image, target, metadata)
     2. Merge with additional metadata if provided
     3. Convert image to HWC format
-    4. Extract boxes and labels from target
-    5. Normalize image to uint8
-    6. Draw bounding boxes if present
+    4. Normalize image to uint8
+    5. Crop to the region
+    6. Scale down to max_size
+    7. Draw the target's boxes, the boxes given for the panel, or none
 
     Parameters
     ----------
@@ -2039,6 +2175,18 @@ def process_dataset_item_for_display(
         Additional metadata to merge with item's metadata
     index2label : dict[int, str] or None, default None
         Mapping from class indices to class names for bounding box labels
+    boxes : bool or NDArray, default True
+        True draws the target's boxes with their labels, False draws none, and an ``(N, 4)`` array of XYXY pixel
+        boxes draws those boxes without labels
+    region : tuple[int, int, int, int] or None, default None
+        An ``(x0, y0, x1, y1)`` crop in full-image pixels; boxes stay in full-image pixels and are shifted to match
+    box_color : tuple[int, int, int], default (0, 255, 0)
+        RGB color of the boxes
+    max_size : int or None, default None
+        Longest side in pixels: a larger RGB image is scaled down before the boxes are drawn, so they keep their
+        width. None keeps the size.
+    panel : int, default 0
+        The panel's position in the grid, named in error messages
 
     Returns
     -------
@@ -2058,20 +2206,57 @@ def process_dataset_item_for_display(
     # Step 3: Convert image to HWC format
     image_hwc = image_to_hwc(image)
 
-    # Step 4: Extract boxes and labels from target
-    boxes, labels, scores = extract_boxes_and_labels(target)
-
-    # Step 5: Normalize image to uint8
+    # Step 4: Normalize image to uint8
     image_uint8 = normalize_image_to_uint8(image_hwc)
 
-    # Step 6: Draw bounding boxes if present
-    if boxes is not None and len(boxes) > 0:
-        image_uint8 = draw_bounding_boxes(
-            image_uint8,
-            boxes,
-            labels,
-            scores,
-            index2label,
-        )
+    # Step 5: Crop to the region; boxes are shifted by its corner when they are drawn
+    if region is not None:
+        try:
+            x0, y0, x1, y1 = (operator.index(v) for v in region)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"region must be four integers (x0, y0, x1, y1) in whole pixels, got {region!r}; round a region "
+                "computed from boxes with int()"
+            ) from None
+        height, width = image_uint8.shape[:2]
+        if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
+            raise ValueError(
+                f"region {(x0, y0, x1, y1)} does not fit panel {panel}, which is {width} x {height} (width x height); "
+                "it needs 0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height"
+            )
+        image_uint8 = image_uint8[y0:y1, x0:x1]
+
+    # Step 6: Scale down so the longer side is at most max_size; boxes are scaled to match when they are drawn
+    scale = 1.0
+    if max_size is not None and max(image_uint8.shape[:2]) > max_size:
+        from PIL import Image
+
+        height, width = image_uint8.shape[:2]
+        scale = max_size / max(height, width)
+        size = (max(1, round(width * scale)), max(1, round(height * scale)))
+        # ponytail: RGB only (animate converts frames first); a 1-channel image would need squeezing for Pillow
+        # Image.Resampling is new in Pillow 9.1; older Pillow, which matplotlib still allows, has Image.LANCZOS
+        lanczos = getattr(Image, "Resampling", Image).LANCZOS  # pyright: ignore[reportAttributeAccessIssue]
+        image_uint8 = np.asarray(Image.fromarray(image_uint8).resize(size, lanczos))
+
+    def placed(xyxy: NDArray[Any]) -> NDArray[Any]:
+        if region is not None:
+            xyxy = xyxy - np.array([region[0], region[1], region[0], region[1]])
+        return xyxy if scale == 1.0 else np.rint(xyxy * scale)
+
+    # Step 7: Draw the target's boxes, or the boxes given for this panel
+    if isinstance(boxes, bool):
+        target_boxes, labels, scores = extract_boxes_and_labels(target)
+        if boxes and target_boxes is not None and len(target_boxes) > 0:
+            image_uint8 = draw_bounding_boxes(
+                image_uint8, placed(target_boxes), labels, scores, index2label, color=box_color
+            )
+    elif len(boxes) > 0:
+        if image_uint8.shape[2] == 1:
+            raise ValueError(
+                f"Panel {panel} is a 1-channel image, where a colored box cannot be seen; convert it to RGB or "
+                "give it no boxes"
+            )
+        image_uint8 = draw_bounding_boxes(image_uint8, placed(boxes), color=box_color)
 
     return image_uint8, target, metadata

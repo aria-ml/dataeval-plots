@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Literal, overload
+from typing import Any, Literal, cast, overload
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from dataeval_plots._animate import GIF, animate
 from dataeval_plots._registry import (
     get_available_backends,
     get_backend,
@@ -28,6 +29,8 @@ from dataeval_plots.protocols import (
 )
 
 __all__ = [
+    "GIF",
+    "animate",
     "plot",
     "project",
     "register_backend",
@@ -145,7 +148,63 @@ def plot(
     show_labels: bool = False,
     show_metadata: bool | Sequence[str] = False,
     additional_metadata: Sequence[dict[str, Any]] | None = None,
-) -> Any: ...
+    titles: Sequence[str] | None = None,
+    boxes: bool | Sequence[ArrayLike] = True,
+    region: tuple[int, int, int, int] | None = None,
+    box_color: str = "lime",
+) -> Any:
+    """
+    Plot images from a dataset as a grid of panels.
+
+    Parameters
+    ----------
+    indices : Sequence[int] or None, default None
+        Items to show, in order. None shows every item.
+    images_per_row : int, default 3
+        Number of panels in each row
+    show_labels : bool, default False
+        Add the target's classes to each panel's title. With ``boxes`` given, they still name the target's classes.
+    show_metadata : bool or Sequence[str], default False
+        Add each item's metadata to its panel's title: every key, or only the keys given, in that order
+    additional_metadata : Sequence[dict[str, Any]] or None, default None
+        More metadata for each panel, one dictionary per panel
+    titles : Sequence[str] or None, default None
+        A title for each panel, in the order of ``indices``, shown before the labels and metadata
+    boxes : bool or Sequence[ArrayLike], default True
+        True draws each target's boxes with their labels, and False draws none. A sequence gives each panel's own
+        boxes, one array of ``[x0, y0, x1, y1]`` per panel in full-image pixels (``[]`` for a panel with none),
+        drawn without labels.
+    region : tuple[int, int, int, int] or None, default None
+        One ``(x0, y0, x1, y1)`` crop in full-image pixels for every panel. Boxes stay in full-image pixels.
+    box_color : str, default "lime"
+        Color of the boxes: any matplotlib color, such as ``"red"`` or ``"#ff8800"``
+    """
+    ...
+
+
+@overload
+def plot(
+    output: Sequence[ArrayLike] | NDArray[Any],
+    /,
+    figsize: tuple[float, float] | None = None,
+    backend: str | None = None,
+    *,
+    indices: Sequence[int] | None = None,
+    images_per_row: int = 3,
+    show_labels: bool = False,
+    show_metadata: bool | Sequence[str] = False,
+    additional_metadata: Sequence[dict[str, Any]] | None = None,
+    titles: Sequence[str] | None = None,
+    boxes: bool | Sequence[ArrayLike] = True,
+    region: tuple[int, int, int, int] | None = None,
+    box_color: str = "lime",
+) -> Any:
+    """
+    Plot a list of image arrays, each 2-D or 3-D, or one 4-D array of images, as a grid of panels.
+
+    The options are those of a dataset's grid. The images have no targets, so ``boxes=True`` draws none.
+    """
+    ...
 
 
 @overload
@@ -159,22 +218,29 @@ def plot(
 
 
 def plot(
-    output: PlottableType, /, figsize: tuple[float, float] | None = None, backend: str | None = None, **kwargs: Any
+    output: PlottableType | Sequence[ArrayLike] | NDArray[Any],
+    /,
+    figsize: tuple[float, float] | None = None,
+    backend: str | None = None,
+    **kwargs: Any,
 ) -> Any:
     """
-    Plot any DataEval output object.
+    Plot any DataEval output object, or a grid of images.
 
     Parameters
     ----------
-    output : Plottable
-        DataEval output object to visualize (must implement Plottable protocol)
+    output : Plottable, Dataset, or list of image arrays
+        DataEval output object to visualize (must implement Plottable protocol), or images to show as a grid: a
+        dataset, a list of 2-D or 3-D image arrays, or one 4-D array of images
     figsize : tuple[float, float] or None, default None
         Figure size in inches (width, height). If None, uses backend defaults.
     backend : str or None, default None
         Plotting backend ('matplotlib', 'seaborn', 'plotly', 'altair').
         If None, uses default backend.
     **kwargs
-        Backend-specific plotting parameters, such as ``plot_evidence`` for feasibility outputs
+        Options for the output's plot, such as ``plot_evidence`` for feasibility outputs, or the image grid's
+        ``indices``, ``images_per_row``, ``show_labels``, ``show_metadata``, ``additional_metadata``, ``titles``,
+        ``boxes``, ``region`` and ``box_color``
 
     Returns
     -------
@@ -207,8 +273,13 @@ def plot(
     >>> set_default_backend("seaborn")
     >>> plot(result, images=dataset)  # Uses seaborn
     """
+    from dataeval_plots.backends._shared import as_image_dataset
+
+    plottable = (
+        as_image_dataset(output) if isinstance(output, list | tuple | np.ndarray) else cast(PlottableType, output)
+    )
     plotting_backend = get_backend(backend)
-    return _display_once(plotting_backend.plot(output, figsize=figsize, **kwargs))
+    return _display_once(plotting_backend.plot(plottable, figsize=figsize, **kwargs))
 
 
 def _display_once(result: Any) -> Any:

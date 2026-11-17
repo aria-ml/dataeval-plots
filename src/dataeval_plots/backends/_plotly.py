@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import numpy as np
 import polars as pl
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from dataeval_plots.backends import _feasibility_layout as layout
 from dataeval_plots.backends._base import BasePlottingBackend
@@ -17,8 +17,10 @@ from dataeval_plots.backends._shared import (
     FEASIBILITY_COLORS,
     FEASIBILITY_CONFLICT_TEXT,
     FeasibilityBand,
+    box_rgb,
     calculate_projection,
     calculate_subplot_grid,
+    check_panel_options,
     feasibility_zones,
     format_label_from_target,
     prepare_balance_data,
@@ -967,37 +969,12 @@ class PlotlyBackend(BasePlottingBackend):
         show_labels: bool = False,
         show_metadata: bool | Sequence[str] = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
+        titles: Sequence[str] | None = None,
+        boxes: bool | Sequence[ArrayLike] = True,
+        region: tuple[int, int, int, int] | None = None,
+        box_color: str = "lime",
     ) -> Any:
-        """
-        Plot a grid of images from a dataset using Plotly.
-
-        Parameters
-        ----------
-        dataset : Dataset
-            MAITE-compatible dataset containing images
-        indices : Sequence[int] or None, default None
-            Indices of images to plot from the dataset. None plots every item.
-        images_per_row : int, default 3
-            Number of images to display per row
-        figsize : tuple[float, float] or None, default None
-            Figure size in pixels (width, height). If None, defaults to 1000x1000.
-        show_labels : bool, default False
-            Whether to display labels extracted from targets
-        show_metadata : bool or Sequence[str], default False
-            Whether to display metadata from the dataset items. A sequence of keys
-            displays only those, in the order given.
-        additional_metadata : Sequence[dict[str, Any]] or None, default None
-            Additional metadata to display for each image (must match length of indices)
-
-        Returns
-        -------
-        plotly.graph_objects.Figure
-
-        Raises
-        ------
-        ValueError
-            If additional_metadata length doesn't match indices length
-        """
+        """Plot a grid of images with Plotly; ``dataeval_plots.plot`` documents the options."""
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
 
@@ -1011,6 +988,9 @@ class PlotlyBackend(BasePlottingBackend):
 
         num_images = len(indices)
         num_rows = (num_images + images_per_row - 1) // images_per_row
+
+        panel_boxes = check_panel_options(len(indices), titles, boxes)
+        color = box_rgb(box_color)
 
         # Get index2label mapping if available
         index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
@@ -1026,11 +1006,15 @@ class PlotlyBackend(BasePlottingBackend):
                 datum,
                 additional_metadata=add_meta,
                 index2label=index2label,
+                boxes=panel_boxes[i],
+                region=region,
+                box_color=color,
+                panel=i,
             )
             processed_images.append(processed_image)
 
-            # Build title from labels and metadata
-            title_parts = []
+            # Build title from the given title, labels and metadata
+            title_parts = [titles[i]] if titles is not None and titles[i] else []
 
             if show_labels and target is not None:
                 label_str = format_label_from_target(target, index2label)

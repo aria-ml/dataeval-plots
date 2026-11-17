@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from dataeval_plots.protocols import (
     Dataset,
@@ -110,6 +110,10 @@ class PlottingBackend(Protocol):
         show_labels: bool = False,
         show_metadata: bool | Sequence[str] = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
+        titles: Sequence[str] | None = None,
+        boxes: bool | Sequence[ArrayLike] = True,
+        region: tuple[int, int, int, int] | None = None,
+        box_color: str = "lime",
     ) -> Any: ...
 
     @overload
@@ -349,43 +353,17 @@ class BasePlottingBackend(PlottingBackend, ABC):
         show_labels: bool = False,
         show_metadata: bool | Sequence[str] = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
+        titles: Sequence[str] | None = None,
+        boxes: bool | Sequence[ArrayLike] = True,
+        region: tuple[int, int, int, int] | None = None,
+        box_color: str = "lime",
     ) -> Figure:
-        """
-        Plot a grid of images from a dataset.
-
-        This is a common implementation used by matplotlib and seaborn backends.
-        Subclasses can override this method to provide custom styling.
-
-        Parameters
-        ----------
-        dataset : Dataset
-            MAITE-compatible dataset containing images
-        indices : Sequence[int] or None, default None
-            Indices of images to plot from the dataset. None plots every item.
-        images_per_row : int, default 3
-            Number of images to display per row
-        figsize : tuple[float, float] or None, default None
-            Figure size in inches (width, height)
-        show_labels : bool, default False
-            Whether to display labels extracted from targets
-        show_metadata : bool or Sequence[str], default False
-            Whether to display metadata from the dataset items. A sequence of keys
-            displays only those, in the order given.
-        additional_metadata : Sequence[dict[str, Any]] or None, default None
-            Additional metadata to display for each image (must match length of indices)
-
-        Returns
-        -------
-        matplotlib.figure.Figure
-
-        Raises
-        ------
-        ValueError
-            If additional_metadata length doesn't match indices length
-        """
+        """Plot a grid of images; ``dataeval_plots.plot`` documents the options."""
         import matplotlib.pyplot as plt
 
         from dataeval_plots.backends._shared import (
+            box_rgb,
+            check_panel_options,
             format_label_from_target,
             process_dataset_item_for_display,
         )
@@ -397,6 +375,8 @@ class BasePlottingBackend(PlottingBackend, ABC):
             raise ValueError(
                 f"additional_metadata length ({len(additional_metadata)}) must match indices length ({len(indices)})"
             )
+        panel_boxes = check_panel_options(len(indices), titles, boxes)
+        color = box_rgb(box_color)
 
         num_images = len(indices)
         num_rows = (num_images + images_per_row - 1) // images_per_row
@@ -413,6 +393,9 @@ class BasePlottingBackend(PlottingBackend, ABC):
                 datum,
                 additional_metadata=add_meta,
                 index2label=index2label,
+                boxes=panel_boxes[0],
+                region=region,
+                box_color=color,
             )
             img_height, img_width = first_image.shape[:2]
 
@@ -444,13 +427,17 @@ class BasePlottingBackend(PlottingBackend, ABC):
                 datum,
                 additional_metadata=add_meta,
                 index2label=index2label,
+                boxes=panel_boxes[i],
+                region=region,
+                box_color=color,
+                panel=i,
             )
 
             ax.imshow(processed_image)
             ax.axis("off")
 
-            # Build title from labels and metadata
-            title_parts = []
+            # Build title from the given title, labels and metadata
+            title_parts = [titles[i]] if titles is not None and titles[i] else []
 
             if show_labels and target is not None:
                 label_str = format_label_from_target(target, index2label)

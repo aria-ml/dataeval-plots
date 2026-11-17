@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import numpy as np
 import polars as pl
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from dataeval_plots.backends import _feasibility_layout as layout
 from dataeval_plots.backends._base import BasePlottingBackend
@@ -17,22 +17,19 @@ from dataeval_plots.backends._shared import (
     FEASIBILITY_COLORS,
     FEASIBILITY_CONFLICT_TEXT,
     FeasibilityBand,
+    box_rgb,
     calculate_projection,
-    draw_bounding_boxes,
-    extract_boxes_and_labels,
+    check_panel_options,
     feasibility_zones,
     format_label_from_target,
     image_to_base64_png,
-    image_to_hwc,
-    merge_metadata,
-    normalize_image_to_uint8,
     normalize_reference_outputs,
-    parse_dataset_item,
     prepare_balance_data,
     prepare_chunked_drift,
     prepare_diversity_data,
     prepare_drift_data,
     prepare_feasibility_data,
+    process_dataset_item_for_display,
     project_steps,
     validate_class_names,
 )
@@ -906,38 +903,12 @@ class AltairBackend(BasePlottingBackend):
         show_labels: bool = False,
         show_metadata: bool | Sequence[str] = False,
         additional_metadata: Sequence[dict[str, Any]] | None = None,
+        titles: Sequence[str] | None = None,
+        boxes: bool | Sequence[ArrayLike] = True,
+        region: tuple[int, int, int, int] | None = None,
+        box_color: str = "lime",
     ) -> Any:
-        """
-        Plot a grid of images from a dataset using Altair.
-
-        Parameters
-        ----------
-        dataset : Dataset
-            MAITE-compatible dataset containing images
-        indices : Sequence[int] or None, default None
-            Indices of images to plot from the dataset. None plots every item.
-        images_per_row : int, default 3
-            Number of images to display per row
-        figsize : tuple[float, float] or None, default None
-            Figure size in inches (width, height)
-        show_labels : bool, default False
-            Whether to display labels extracted from targets
-        show_metadata : bool or Sequence[str], default False
-            Whether to display metadata from the dataset items. A sequence of keys
-            displays only those, in the order given.
-        additional_metadata : Sequence[dict[str, Any]] or None, default None
-            Additional metadata to display for each image (must match length of indices)
-
-        Returns
-        -------
-        altair.Chart
-            Altair chart with concatenated image subplots
-
-        Raises
-        ------
-        ValueError
-            If additional_metadata length doesn't match indices length
-        """
+        """Plot a grid of images with Altair; ``dataeval_plots.plot`` documents the options."""
         import altair as alt
         import pandas as pd
 
@@ -949,11 +920,28 @@ class AltairBackend(BasePlottingBackend):
                 f"additional_metadata length ({len(additional_metadata)}) must match indices length ({len(indices)})"
             )
 
+        panel_boxes = check_panel_options(len(indices), titles, boxes)
+        color = box_rgb(box_color)
+
         num_images = len(indices)
         num_rows = (num_images + images_per_row - 1) // images_per_row
 
         # Get index2label mapping if available
         index2label = dataset.metadata.get("index2label") if hasattr(dataset, "metadata") else None
+
+        # Prepare every panel once: pixels, target and metadata
+        prepared = [
+            process_dataset_item_for_display(
+                dataset[idx],
+                additional_metadata=additional_metadata[i] if additional_metadata is not None else None,
+                index2label=index2label,
+                boxes=panel_boxes[i],
+                region=region,
+                box_color=color,
+                panel=i,
+            )
+            for i, idx in enumerate(indices)
+        ]
 
         # Determine dimensions
         if figsize is not None:
@@ -964,12 +952,8 @@ class AltairBackend(BasePlottingBackend):
             img_width = width // images_per_row
             img_height = height // num_rows if num_rows > 0 else height
         else:
-            # Auto-detect size based on first image dimensions
-            # Get the first image to determine dimensions
-            datum = dataset[indices[0]]
-            image, _, _ = parse_dataset_item(datum)
-            image_hwc = image_to_hwc(image)
-            first_img_height, first_img_width = image_hwc.shape[:2]
+            # Auto-detect size based on the first panel's dimensions
+            first_img_height, first_img_width = prepared[0][0].shape[:2]
 
             # Use actual image dimensions with slim borders (5% padding on top/bottom)
             padding_factor = 0.05
@@ -978,38 +962,14 @@ class AltairBackend(BasePlottingBackend):
 
         # Prepare all image data with grid positions
         image_data = []
-        for i, idx in enumerate(indices):
-            # Get dataset item and parse it
-            datum = dataset[idx]
-            image, target, metadata = parse_dataset_item(datum)
-
-            # Merge with additional metadata if provided
-            if additional_metadata is not None:
-                metadata = merge_metadata(metadata, additional_metadata[i])
-
-            # Convert image to base64
-            image_hwc = image_to_hwc(image)
-            image_uint8 = normalize_image_to_uint8(image_hwc)
-
-            # Check if we have object detection targets and should draw boxes
-            boxes, labels, scores = extract_boxes_and_labels(target)
-            if boxes is not None and len(boxes) > 0:
-                # Draw bounding boxes
-                image_uint8 = draw_bounding_boxes(
-                    image_uint8,
-                    boxes,
-                    labels,
-                    scores,
-                    index2label,
-                )
-
+        for i, (idx, (image_uint8, target, metadata)) in enumerate(zip(indices, prepared, strict=True)):
             img_base64 = image_to_base64_png(image_uint8)
 
             row = i // images_per_row
             col = i % images_per_row
 
-            # Build title from labels and metadata
-            title_parts = []
+            # Build title from the given title, labels and metadata
+            title_parts = [titles[i]] if titles is not None and titles[i] else []
 
             if show_labels and target is not None:
                 label_str = format_label_from_target(target, index2label)
@@ -1040,7 +1000,7 @@ class AltairBackend(BasePlottingBackend):
         )
 
         # Add text labels if any titles are present
-        if show_labels or show_metadata:
+        if show_labels or show_metadata or titles is not None:
             text_chart = (
                 alt.Chart(df)
                 .mark_text(align="center", baseline="top", dy=5, fontSize=8)
